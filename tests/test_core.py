@@ -165,3 +165,36 @@ def test_office_docx(tmp_path):
     with OfficeSession() as office:
         office.convert(str(src), str(dst))
     assert "OFFICETEST" in (PdfReader(str(dst)).pages[0].extract_text() or "")
+
+def test_pick_installer_asset():
+    from gs_installer import pick_installer_asset
+
+    assets = [
+        {"name": "ghostpcl-10.07.1-win64.zip"},
+        {"name": "gs10071w32.exe"},
+        {"name": "gs10071w64.exe", "browser_download_url": "https://x/gs10071w64.exe"},
+        {"name": "SHA512SUMS"},
+    ]
+    picked = pick_installer_asset(assets)
+    assert picked and picked["name"] == "gs10071w64.exe"
+    assert pick_installer_asset([{"name": "readme.txt"}]) is None
+
+
+def test_fetch_latest_installer_url():
+    from gs_installer import fetch_latest_installer_url
+
+    info = fetch_latest_installer_url(timeout=30)
+    assert info is not None
+    url, tag = info
+    assert url.startswith("https://") and url.endswith("w64.exe")
+    assert tag.startswith("gs")
+
+
+def test_install_ghostscript_noop_when_installed():
+    from gs_installer import install_ghostscript
+
+    result = install_ghostscript()
+    if find_ghostscript():
+        assert result and os.path.exists(result)
+    else:
+        assert result is None

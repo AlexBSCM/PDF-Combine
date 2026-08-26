@@ -24,6 +24,7 @@ from converters.htmlpdf import find_browser, html_to_pdf
 from converters.images import images_to_pdf
 from converters.office import OfficeSession
 from converters.text import text_to_pdf
+from gs_installer import install_ghostscript
 from gs_locator import find_ghostscript
 from merge import merge_pdfs, parse_pages, split_pdf
 from optimize import QualitySettings, optimize_pdf
@@ -130,6 +131,8 @@ class App(_DND_BASE):
         self._toggle_custom()
         self.after(100, self._poll_queue)
         self.protocol("WM_DELETE_WINDOW", self._on_close)
+        if not self.gs_path:
+            self.after(600, self._offer_gs_install)
 
     def _apply_window_icon(self):
         icon = os.path.join(os.path.dirname(os.path.abspath(__file__)), "app.ico")
@@ -173,6 +176,39 @@ class App(_DND_BASE):
             "grayscale": bool(self.grayscale_var.get()),
             "merge": bool(self.merge_var.get()),
         }
+
+    def _persist_settings(self):
+        self.settings.update(self._collect_settings())
+        self._save_settings(self.settings)
+
+    def _offer_gs_install(self):
+        choice = self.settings.get("gs_auto_install")
+        if choice == "no":
+            return
+        if choice != "yes":
+            answer = messagebox.askyesno(
+                "Ghostscript",
+                "Ghostscript не найден — сжатие PDF будет отключено.\n\n"
+                "Скачать и установить автоматически (~62 МБ,\n"
+                "потребуется подтвердить запрос Windows)?",
+            )
+            self.settings["gs_auto_install"] = "yes" if answer else "no"
+            self._persist_settings()
+            if not answer:
+                return
+        threading.Thread(target=self._install_gs_worker, daemon=True).start()
+
+    def _install_gs_worker(self):
+        try:
+            path = install_ghostscript(
+                progress_cb=lambda p: self.msg_queue.put(("gs_progress", p)),
+                status_cb=self._queue_log,
+            )
+        except Exception as e:
+            log.error("Автоустановка Ghostscript не удалась: %s", e, exc_info=True)
+            self.msg_queue.put(("gs_result", ("error", str(e))))
+            return
+        self.msg_queue.put(("gs_result", ("ok", path)))
 
     def _build_ui(self):
         s = self.settings
@@ -264,9 +300,10 @@ class App(_DND_BASE):
             if self.gs_path
             else "Ghostscript не найден — сжатие будет пропущено"
         )
-        ttk.Label(self, text=gs_status, foreground=("black" if self.gs_path else "red")).pack(
-            anchor="w", padx=12
+        self.gs_label = ttk.Label(
+            self, text=gs_status, foreground=("black" if self.gs_path else "red")
         )
+        self.gs_label.pack(anchor="w", padx=12)
 
         self.convert_btn = ttk.Button(self, text="Конвертировать", command=self.start_convert)
         self.convert_btn.pack(pady=8)
@@ -426,6 +463,34 @@ class App(_DND_BASE):
                     self.convert_btn.state(["!disabled"])
                     self.progress.configure(value=0)
                     self.progress_lbl.configure(text="")
+                elif kind == "gs_progress":
+                    self.progress.configure(maximum=100, value=payload)
+                    self.progress_lbl.configure(text=f"GS {payload}%")
+                elif kind == "gs_result":
+                    status, payload = payload
+                    if status == "ok":
+                        self.gs_path = payload
+                        self.gs_label.configure(
+                            text=f"Ghostscript: {payload}", foreground="black"
+                        )
+                        self._queue_log(f"Ghostscript установлен: {payload}")
+                        log.info("Ghostscript установлен: %s", payload)
+                        messagebox.showinfo(
+                            "Готово", f"Ghostscript установлен:\n{payload}"
+                        )
+                    else:
+                        self.gs_label.configure(
+                            text="Ghostscript не найден — сжатие будет пропущено",
+                            foreground="red",
+                        )
+                        messagebox.showwarning(
+                            "Ошибка установки",
+                            f"Не удалось установить Ghostscript:\n{payload}\n\n"
+                            "Сжатие будет пропущено. Установите вручную с "
+                            "https://ghostscript.com/releases/gsdnld.html",
+                        )
+                    self.progress.configure(value=0)
+                    self.progress_lbl.configure(text="")
                 elif kind == "cancelled":
                     was_cancelled = True
                 elif kind == "summary":
@@ -445,7 +510,7 @@ class App(_DND_BASE):
             messagebox.showwarning("Нет файлов", "Сначала добавьте файлы.")
             return
         settings = self._collect_settings()
-        self._save_settings(settings)
+        self._persist_settings()
         log.info(
             "Старт конвертации: %d файлов, preset=%s, merge=%s",
             len(self.files), settings["preset"], settings["merge"],
@@ -573,7 +638,7 @@ class App(_DND_BASE):
         return final_path
 
     def _on_close(self):
-        self._save_settings(self._collect_settings())
+        self._persist_settings()
         log.info("Приложение закрыто")
         self.destroy()
 
