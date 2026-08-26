@@ -1,0 +1,6 @@
+pywin32>=306
+pillow>=10.0
+img2pdf>=0.5
+reportlab>=4.0
+pypdf>=4.0
+tkinterdnd2>=0.4

@@ -1,0 +1,167 @@
+"""Тесты ядра конвертеров (без GUI). Office-тесты включаются переменной
+окружения PDFCONV_TEST_OFFICE=1 на машине с установленным MS Office."""
+import os
+
+import pytest
+from pypdf import PdfReader
+from PIL import Image
+
+from converters.htmlpdf import find_browser, html_to_pdf
+from converters.images import images_to_pdf
+from converters.text import text_to_pdf
+from gs_locator import find_ghostscript
+from merge import merge_pdfs, parse_pages, split_pdf
+import app as appmod
+
+
+@pytest.fixture()
+def tmp_out(tmp_path):
+    return tmp_path
+
+
+def test_text_cyrillic_cp1251(tmp_out):
+    src = tmp_out / "t.txt"
+    src.write_bytes("Привет, мир! ЩЪЁ\n".encode("cp1251"))
+    dst = tmp_out / "t.pdf"
+    text_to_pdf(str(src), str(dst))
+    assert "Привет" in PdfReader(str(dst)).pages[0].extract_text()
+
+
+def test_text_utf8_and_multipage(tmp_out):
+    src = tmp_out / "t.md"
+    src.write_text("Строка один\n" * 400, encoding="utf-8")
+    dst = tmp_out / "t.pdf"
+    text_to_pdf(str(src), str(dst))
+    assert len(PdfReader(str(dst)).pages) > 1
+
+
+def test_text_long_word_no_crash(tmp_out):
+    src = tmp_out / "long.txt"
+    src.write_text("X" * 3000 + "\n", encoding="utf-8")
+    dst = tmp_out / "long.pdf"
+    text_to_pdf(str(src), str(dst))
+    assert len(PdfReader(str(dst)).pages) >= 1
+
+
+def test_images_alpha_flattened(tmp_out):
+    alpha = tmp_out / "a.png"
+    Image.new("RGBA", (120, 80), (255, 0, 0, 128)).save(alpha)
+    jpg = tmp_out / "b.jpg"
+    Image.new("RGB", (60, 60), (0, 255, 0)).save(jpg)
+    dst = tmp_out / "imgs.pdf"
+    images_to_pdf([str(alpha), str(jpg)], str(dst))
+    assert len(PdfReader(str(dst)).pages) == 2
+
+
+def test_merge_order(tmp_out):
+    pdfs = []
+    for i in range(3):
+        src = tmp_out / f"m{i}.txt"
+        src.write_text(f"MARK{i}\n", encoding="utf-8")
+        pdf = tmp_out / f"m{i}.pdf"
+        text_to_pdf(str(src), str(pdf))
+        pdfs.append(str(pdf))
+    dst = tmp_out / "merged.pdf"
+    merge_pdfs(pdfs, str(dst))
+    pages = [p.extract_text() or "" for p in PdfReader(str(dst)).pages]
+    assert len(pages) == 3
+    assert all(f"MARK{i}" in pages[i] for i in range(3))
+
+
+def test_parse_pages():
+    assert parse_pages("1-3,5") == [1, 2, 3, 5]
+    assert parse_pages("7") == [7]
+    assert parse_pages("1,1,2") == [1, 2]
+    with pytest.raises(ValueError):
+        parse_pages("abc")
+    with pytest.raises(ValueError):
+        parse_pages("")
+    with pytest.raises(ValueError):
+        parse_pages("3-1")
+    with pytest.raises(ValueError):
+        parse_pages("1-10", total=5)
+
+
+def test_split_pdf(tmp_out):
+    src = tmp_out / "s.txt"
+    src.write_text("\n".join(f"P{i}" for i in range(400)), encoding="utf-8")
+    full = tmp_out / "s.pdf"
+    text_to_pdf(str(src), str(full))
+    total = len(PdfReader(str(full)).pages)
+    assert total >= 3
+    dst = tmp_out / "part.pdf"
+    count = split_pdf(str(full), parse_pages("1-2," + str(total)), str(dst))
+    assert count == 3
+    assert len(PdfReader(str(dst)).pages) == 3
+    with pytest.raises(ValueError):
+        split_pdf(str(full), [total + 1], str(dst))
+
+
+def test_build_jobs_order_and_grouping():
+    files = ["a.txt", "i1.png", "i2.jpg", "b.docx", "i3.webp"]
+    jobs = appmod.build_jobs(files)
+    kinds = [j[0] for j in jobs]
+    assert kinds == ["file", "images", "file"]
+    assert jobs[1][1] == ["i1.png", "i2.jpg", "i3.webp"]
+
+
+def test_unique_pdf_path(tmp_path):
+    stem = "doc"
+    first = appmod.unique_pdf_path(str(tmp_path), stem)
+    open(first, "wb").close()
+    second = appmod.unique_pdf_path(str(tmp_path), stem)
+    assert first != second and second.endswith("_2.pdf")
+
+
+def test_gs_locator_type():
+    result = find_ghostscript()
+    assert result is None or (isinstance(result, str) and os.path.exists(result))
+
+
+def test_html_to_pdf_if_browser(tmp_out):
+    browser = find_browser()
+    if not browser:
+        pytest.skip("Edge/Chrome не найден")
+    src = tmp_out / "page.html"
+    src.write_text("<html><body><h1>HTMLTEST123</h1></body></html>", encoding="utf-8")
+    dst = tmp_out / "page.pdf"
+    html_to_pdf(str(src), str(dst), browser_path=browser)
+    reader = PdfReader(str(dst))
+    assert len(reader.pages) >= 1
+    assert "HTMLTEST123" in (reader.pages[0].extract_text() or "")
+
+
+@pytest.mark.skipif(
+    os.environ.get("PDFCONV_TEST_OFFICE") != "1",
+    reason="Требуется MS Office; включается PDFCONV_TEST_OFFICE=1",
+)
+def test_office_docx(tmp_path):
+    import pythoncom
+    from converters.office import OfficeSession
+
+    word = None
+    try:
+        import win32com.client as win32
+        pythoncom.CoInitialize()
+        try:
+            word = win32.Dispatch("Word.Application")
+        except Exception:
+            pytest.skip("MS Word не установлен")
+        finally:
+            pass
+    finally:
+        pass
+
+    src = tmp_path / "o.docx"
+    try:
+        doc = word.Documents.Add()
+        doc.Content.Text = "OFFICETEST"
+        doc.SaveAs(os.path.abspath(src), FileFormat=16)
+        doc.Close(False)
+    finally:
+        word.Quit()
+
+    dst = tmp_path / "o.pdf"
+    with OfficeSession() as office:
+        office.convert(str(src), str(dst))
+    assert "OFFICETEST" in (PdfReader(str(dst)).pages[0].extract_text() or "")
