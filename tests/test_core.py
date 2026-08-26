@@ -198,3 +198,27 @@ def test_install_ghostscript_noop_when_installed():
         assert result and os.path.exists(result)
     else:
         assert result is None
+
+def test_images_invalid_exif_rotation(tmp_out):
+    im = Image.new("RGB", (150, 100), (10, 10, 200))
+    ex = Image.Exif()
+    ex[274] = 0
+    src = tmp_out / "rot.jpg"
+    im.save(src, quality=90, exif=ex.tobytes())
+    dst = tmp_out / "rot.pdf"
+    images_to_pdf([str(src)], str(dst))
+    assert len(PdfReader(str(dst)).pages) == 1
+
+
+def test_copy_log_button():
+    from app import App
+
+    app = App()
+    app.withdraw()
+    app.log.insert("1.0", "LINE1\nLINE2")
+    app.copy_log()
+    assert app.clipboard_get() == "LINE1\nLINE2"
+    event = type("E", (), {})()
+    assert app._log_ctrl_c(event) == "break"
+    assert app.clipboard_get() == "LINE1\nLINE2"
+    app.destroy()

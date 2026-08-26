@@ -315,8 +315,35 @@ class App(_DND_BASE):
         self.progress_lbl = ttk.Label(frm_progress, text="", width=10, anchor="e")
         self.progress_lbl.pack(side="right", padx=(6, 0))
 
-        self.log = tk.Text(self, height=9)
-        self.log.pack(fill="both", expand=True, padx=10, pady=(6, 10))
+        frm_log = ttk.Frame(self)
+        frm_log.pack(fill="both", expand=True, padx=10, pady=(6, 10))
+        row_log = ttk.Frame(frm_log)
+        row_log.pack(fill="x", pady=(0, 4))
+        self.copy_log_btn = ttk.Button(
+            row_log, text="Копировать лог", command=self.copy_log
+        )
+        self.copy_log_btn.pack(side="right")
+        self.log = tk.Text(frm_log, height=9)
+        self.log.pack(fill="both", expand=True)
+        self.log.bind("<Control-c>", self._log_ctrl_c)
+
+    def copy_log(self):
+        text = self.log.get("1.0", "end-1c")
+        if text.strip():
+            self.clipboard_clear()
+            self.clipboard_append(text)
+            self.copy_log_btn.configure(text="Скопировано")
+        else:
+            self.copy_log_btn.configure(text="Лог пуст")
+        self.after(1500, lambda: self.copy_log_btn.configure(text="Копировать лог"))
+
+    def _log_ctrl_c(self, _event=None):
+        if self.log.tag_ranges("sel"):
+            self.log.event_generate("<<Copy>>")
+        else:
+            self.clipboard_clear()
+            self.clipboard_append(self.log.get("1.0", "end-1c"))
+        return "break"
 
     def _toggle_custom(self, _event=None):
         if self.preset_var.get() == "custom":

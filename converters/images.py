@@ -23,7 +23,7 @@ def images_to_pdf(image_paths: list[str], output_path: str, work_dir: str | None
             for i, path in enumerate(image_paths)
         ]
         with open(output_path, "wb") as f:
-            f.write(img2pdf.convert(prepared))
+            f.write(img2pdf.convert(prepared, rotation=img2pdf.Rotation.ifvalid))
     finally:
         if own_dir:
             shutil.rmtree(work, ignore_errors=True)
