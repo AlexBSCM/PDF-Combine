@@ -11,6 +11,7 @@ import threading
 import time
 import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog, ttk
+from PIL import Image, ImageOps, ImageTk
 
 try:
     from tkinterdnd2 import DND_FILES, TkinterDnD
@@ -23,6 +24,7 @@ except ImportError:
 from converters.htmlpdf import find_browser, html_to_pdf
 from converters.images import images_to_pdf
 from converters.office import OfficeSession
+from converters.preview import render_compressed
 from converters.text import text_to_pdf
 from gs_installer import install_ghostscript
 from gs_locator import find_ghostscript
@@ -169,10 +171,15 @@ class App(_DND_BASE):
         preset = self.preset_var.get()
         if preset not in PRESETS:
             preset = "ebook"
+        try:
+            jpeg_quality = int(round(float(self.jpeg_var.get())))
+        except Exception:
+            jpeg_quality = 75
         return {
             "out_dir": self.out_dir_var.get(),
             "preset": preset,
-            "dpi": max(72, min(300, dpi)),
+            "dpi": max(30, min(300, dpi)),
+            "jpeg_quality": max(10, min(95, jpeg_quality)),
             "grayscale": bool(self.grayscale_var.get()),
             "merge": bool(self.merge_var.get()),
         }
@@ -277,11 +284,31 @@ class App(_DND_BASE):
             dpi_saved = float(dpi_saved)
         except (TypeError, ValueError):
             dpi_saved = 150.0
-        self.dpi_var = tk.DoubleVar(value=max(72, min(300, dpi_saved)))
+        self.dpi_var = tk.DoubleVar(value=max(30, min(300, dpi_saved)))
         self.dpi_scale = ttk.Scale(
-            frm_quality, from_=72, to=300, variable=self.dpi_var, orient="horizontal"
+            frm_quality, from_=30, to=300, variable=self.dpi_var, orient="horizontal",
+            command=self._on_scale,
         )
         self.dpi_scale.grid(row=0, column=3, sticky="we", padx=5, pady=5)
+        self.dpi_val_lbl = ttk.Label(frm_quality, text=str(int(round(self.dpi_var.get()))), width=5)
+        self.dpi_val_lbl.grid(row=0, column=4, padx=2, pady=5)
+
+        ttk.Label(frm_quality, text="JPEG качество (custom):").grid(
+            row=2, column=0, columnspan=2, sticky="w", padx=5, pady=5
+        )
+        jpeg_saved = s.get("jpeg_quality", 75)
+        try:
+            jpeg_saved = int(jpeg_saved)
+        except (TypeError, ValueError):
+            jpeg_saved = 75
+        self.jpeg_var = tk.IntVar(value=max(10, min(95, jpeg_saved)))
+        self.jpeg_scale = ttk.Scale(
+            frm_quality, from_=10, to=95, variable=self.jpeg_var, orient="horizontal",
+            command=self._on_scale,
+        )
+        self.jpeg_scale.grid(row=2, column=2, columnspan=2, sticky="we", padx=5, pady=5)
+        self.jpeg_val_lbl = ttk.Label(frm_quality, text=str(int(round(self.jpeg_var.get()))), width=5)
+        self.jpeg_val_lbl.grid(row=2, column=4, padx=2, pady=5)
 
         self.grayscale_var = tk.BooleanVar(value=bool(s.get("grayscale", False)))
         ttk.Checkbutton(frm_quality, text="Ч/Б (grayscale)", variable=self.grayscale_var).grid(
@@ -294,6 +321,17 @@ class App(_DND_BASE):
         )
 
         frm_quality.columnconfigure(3, weight=1)
+
+        frm_preview = ttk.Frame(self)
+        frm_preview.pack(fill="x", padx=10, pady=(0, 5))
+        ttk.Button(
+            frm_preview, text="Предпросмотр сжатия...", command=self.open_preview
+        ).pack(side="left")
+        ttk.Label(
+            frm_preview,
+            text="Смотрите размер/качество до и после в реальном времени",
+            foreground="gray",
+        ).pack(side="left", padx=6)
 
         gs_status = (
             f"Ghostscript: {self.gs_path}"
@@ -348,8 +386,14 @@ class App(_DND_BASE):
     def _toggle_custom(self, _event=None):
         if self.preset_var.get() == "custom":
             self.dpi_scale.state(["!disabled"])
+            self.jpeg_scale.state(["!disabled"])
         else:
             self.dpi_scale.state(["disabled"])
+            self.jpeg_scale.state(["disabled"])
+
+    def _on_scale(self, _event=None):
+        self.dpi_val_lbl.configure(text=str(int(round(self.dpi_var.get()))))
+        self.jpeg_val_lbl.configure(text=str(int(round(self.jpeg_var.get()))))
 
     def add_files(self):
         paths = filedialog.askopenfilenames(
@@ -560,6 +604,7 @@ class App(_DND_BASE):
                 preset=self.preset_var.get(),
                 dpi=int(round(float(self.dpi_var.get()))),
                 grayscale=self.grayscale_var.get(),
+                jpeg_quality=int(round(float(self.jpeg_var.get()))),
             )
 
             jobs = build_jobs(self.files)
@@ -667,6 +712,167 @@ class App(_DND_BASE):
     def _on_close(self):
         self._persist_settings()
         log.info("Приложение закрыто")
+        self.destroy()
+
+    def open_preview(self):
+        image_files = [
+            f for f in self.files
+            if os.path.splitext(f)[1].lower() in IMAGE_EXTS
+        ]
+        if not image_files:
+            messagebox.showwarning(
+                "Нет изображений",
+                "Добавьте в список хотя бы одно изображение (jpg/png/...), "
+                "чтобы открыть предпросмотр сжатия.",
+            )
+            return
+
+        dpi = int(round(float(self.dpi_var.get())))
+        q = int(round(float(self.jpeg_var.get())))
+        gray = bool(self.grayscale_var.get())
+
+        def apply(dpi_, q_, gray_):
+            self.preset_var.set("custom")
+            self.dpi_var.set(dpi_)
+            self.jpeg_var.set(q_)
+            self.grayscale_var.set(gray_)
+            self._toggle_custom()
+            self._on_scale()
+            self._persist_settings()
+
+        PreviewWindow(self, image_files, dpi, q, gray, apply)
+
+
+class PreviewWindow(tk.Toplevel):
+    DEBOUNCE_MS = 160
+
+    def __init__(self, master, image_paths, dpi, quality, grayscale, on_apply):
+        super().__init__(master)
+        self.title("Предпросмотр сжатия")
+        self.geometry("760x560")
+        self.transient(master)
+        self.image_paths = list(image_paths)
+        self.on_apply = on_apply
+        self._after_id = None
+        self._photo_orig = None
+        self._photo_comp = None
+
+        top = ttk.Frame(self)
+        top.pack(fill="x", padx=10, pady=8)
+        ttk.Label(top, text="Изображение:").pack(side="left")
+        self.var_image = tk.StringVar(value=os.path.basename(self.image_paths[0]))
+        self.combo = ttk.Combobox(
+            top, textvariable=self.var_image, width=46,
+            values=[os.path.basename(p) for p in self.image_paths], state="readonly",
+        )
+        self.combo.pack(side="left", padx=6)
+        self.combo.bind("<<ComboboxSelected>>", lambda _e: self._schedule())
+
+        frm = ttk.Frame(self)
+        frm.pack(fill="both", expand=True, padx=10)
+        left = ttk.LabelFrame(frm, text="Оригинал")
+        left.pack(side="left", fill="both", expand=True, padx=(0, 5))
+        right = ttk.LabelFrame(frm, text="Сжатая версия")
+        right.pack(side="left", fill="both", expand=True, padx=(5, 0))
+        self.lbl_orig_img = ttk.Label(left)
+        self.lbl_orig_img.pack(expand=True)
+        self.lbl_orig_info = ttk.Label(left)
+        self.lbl_orig_info.pack(pady=4)
+        self.lbl_comp_img = ttk.Label(right)
+        self.lbl_comp_img.pack(expand=True)
+        self.lbl_comp_info = ttk.Label(right)
+        self.lbl_comp_info.pack(pady=4)
+
+        ctrls = ttk.LabelFrame(self, text="Параметры сжатия")
+        ctrls.pack(fill="x", padx=10, pady=6)
+        self.var_dpi = tk.DoubleVar(value=dpi)
+        self.var_q = tk.IntVar(value=quality)
+        self.var_gray = tk.BooleanVar(value=grayscale)
+
+        r1 = ttk.Frame(ctrls)
+        r1.pack(fill="x", padx=8, pady=4)
+        ttk.Label(r1, text="DPI:").pack(side="left")
+        ttk.Scale(r1, from_=30, to=300, variable=self.var_dpi, orient="horizontal").pack(
+            side="left", fill="x", expand=True, padx=6
+        )
+        self.dpi_lbl = ttk.Label(r1, text=str(int(round(dpi))), width=5)
+        self.dpi_lbl.pack(side="left")
+        self.var_dpi.trace_add("write", self._on_change)
+
+        r2 = ttk.Frame(ctrls)
+        r2.pack(fill="x", padx=8, pady=4)
+        ttk.Label(r2, text="JPEG:").pack(side="left")
+        ttk.Scale(r2, from_=10, to=95, variable=self.var_q, orient="horizontal").pack(
+            side="left", fill="x", expand=True, padx=6
+        )
+        self.q_lbl = ttk.Label(r2, text=str(int(round(quality))), width=5)
+        self.q_lbl.pack(side="left")
+        self.var_q.trace_add("write", self._on_change)
+
+        r3 = ttk.Frame(ctrls)
+        r3.pack(fill="x", padx=8, pady=4)
+        ttk.Checkbutton(r3, text="Ч/Б (grayscale)", variable=self.var_gray, command=self._schedule).pack(side="left")
+        self.est_lbl = ttk.Label(r3, text="", foreground="blue")
+        self.est_lbl.pack(side="left", padx=10)
+
+        bottom = ttk.Frame(self)
+        bottom.pack(fill="x", padx=10, pady=8)
+        ttk.Button(bottom, text="Закрыть", command=self.destroy).pack(side="right")
+        ttk.Button(bottom, text="Применить к настройкам", command=self._apply).pack(side="right", padx=6)
+
+        self._update()
+
+    def _on_change(self, *_a):
+        self.dpi_lbl.configure(text=str(int(round(self.var_dpi.get()))))
+        self.q_lbl.configure(text=str(int(round(self.var_q.get()))))
+        self._schedule()
+
+    def _schedule(self):
+        if self._after_id:
+            self.after_cancel(self._after_id)
+        self._after_id = self.after(self.DEBOUNCE_MS, self._update)
+
+    def _current_path(self):
+        idx = self.combo.current()
+        return self.image_paths[idx if idx >= 0 else 0]
+
+    def _update(self):
+        path = self._current_path()
+        try:
+            with Image.open(path) as im:
+                base = ImageOps.exif_transpose(im)
+            orig_bytes = os.path.getsize(path)
+        except Exception as e:
+            self.lbl_comp_info.configure(text=f"Ошибка: {e}")
+            return
+
+        disp = base.copy()
+        disp.thumbnail((240, 240))
+        self._photo_orig = ImageTk.PhotoImage(disp)
+        self.lbl_orig_img.configure(image=self._photo_orig)
+        self.lbl_orig_info.configure(text=f"{base.width}x{base.height}, {fmt_size(orig_bytes)}")
+
+        dpi = int(round(self.var_dpi.get()))
+        q = int(round(self.var_q.get()))
+        gray = self.var_gray.get()
+        try:
+            comp, size = render_compressed(path, dpi, q, gray)
+        except Exception as e:
+            self.lbl_comp_info.configure(text=f"Ошибка: {e}")
+            return
+        disp2 = comp.copy()
+        disp2.thumbnail((240, 240))
+        self._photo_comp = ImageTk.PhotoImage(disp2)
+        self.lbl_comp_img.configure(image=self._photo_comp)
+        self.lbl_comp_info.configure(text=f"{comp.width}x{comp.height}, ~{fmt_size(size)} на стр.")
+        self.est_lbl.configure(text=f"Оценка: {fmt_size(orig_bytes)} -> ~{fmt_size(size)}")
+
+    def _apply(self):
+        self.on_apply(
+            int(round(self.var_dpi.get())),
+            int(round(self.var_q.get())),
+            self.var_gray.get(),
+        )
         self.destroy()
 
 

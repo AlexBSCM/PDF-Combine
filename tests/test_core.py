@@ -8,9 +8,11 @@ from PIL import Image
 
 from converters.htmlpdf import find_browser, html_to_pdf
 from converters.images import images_to_pdf
+from converters.preview import render_compressed
 from converters.text import text_to_pdf
 from gs_locator import find_ghostscript
 from merge import merge_pdfs, parse_pages, split_pdf
+from optimize import QualitySettings, _qfactor, optimize_pdf
 import app as appmod
 
 
@@ -222,3 +224,56 @@ def test_copy_log_button():
     assert app._log_ctrl_c(event) == "break"
     assert app.clipboard_get() == "LINE1\nLINE2"
     app.destroy()
+
+
+def test_preview_render_smaller_at_low_quality(tmp_out):
+    im = Image.new("RGB", (2000, 1500), (120, 30, 200))
+    src = tmp_out / "big.jpg"
+    im.save(src, quality=95)
+    _, hi = render_compressed(str(src), 150, 95, False)
+    _, lo = render_compressed(str(src), 40, 15, False)
+    assert lo < hi
+    comp_gray, _ = render_compressed(str(src), 150, 80, True)
+    assert comp_gray.mode == "L"
+
+
+def test_qfactor_mapping():
+    assert _qfactor(95) == 0.1
+    assert _qfactor(10) == 1.8
+    assert _qfactor(90) < _qfactor(20)
+
+
+def test_optimize_jpeg_quality_reduces_size(tmp_out):
+    gs = find_ghostscript()
+    if not gs:
+        pytest.skip("Ghostscript не найден")
+    big = tmp_out / "big.png"
+    Image.new("RGB", (2400, 1800), (200, 100, 30)).save(big)
+    raw = tmp_out / "raw.pdf"
+    images_to_pdf([str(big)], str(raw))
+    hi = tmp_out / "hi.pdf"
+    lo = tmp_out / "lo.pdf"
+    optimize_pdf(gs, str(raw), str(hi), QualitySettings(preset="custom", dpi=150, jpeg_quality=95))
+    optimize_pdf(gs, str(raw), str(lo), QualitySettings(preset="custom", dpi=150, jpeg_quality=15))
+    assert os.path.getsize(str(lo)) < os.path.getsize(str(hi))
+
+
+def test_preview_window_updates(tmp_out):
+    from app import App, PreviewWindow
+
+    im = Image.new("RGB", (800, 600), (40, 120, 200))
+    src = tmp_out / "p.jpg"
+    im.save(src, quality=90)
+
+    root = App()
+    root.withdraw()
+    root.files = [str(src)]
+    root.open_preview()
+    pw = next(w for w in root.winfo_children() if isinstance(w, PreviewWindow))
+    assert pw.lbl_orig_info.cget("text") != ""
+    assert "~" in pw.lbl_comp_info.cget("text")
+    pw.var_gray.set(True)
+    pw._update()
+    assert pw.lbl_comp_info.cget("text") != ""
+    pw.destroy()
+    root.destroy()
