@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+
+<html lang="ru"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Конвертер PDF</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "secondary": "#565e74",
+                        "on-tertiary-fixed": "#191c1e",
+                        "primary-fixed-dim": "#6bd8cb",
+                        "on-primary": "#ffffff",
+                        "inverse-primary": "#6bd8cb",
+                        "on-secondary-fixed": "#131b2e",
+                        "surface-container-lowest": "#ffffff",
+                        "on-primary-fixed-variant": "#005049",
+                        "inverse-surface": "#213145",
+                        "inverse-on-surface": "#eaf1ff",
+                        "on-secondary-container": "#5c647a",
+                        "surface-dim": "#cbdbf5",
+                        "error-container": "#ffdad6",
+                        "background": "#f8f9ff",
+                        "surface-bright": "#f8f9ff",
+                        "tertiary-fixed-dim": "#c4c7c9",
+                        "surface-tint": "#006a61",
+                        "tertiary-fixed": "#e0e3e5",
+                        "surface-variant": "#d3e4fe",
+                        "surface-container-low": "#eff4ff",
+                        "on-surface-variant": "#3d4947",
+                        "outline": "#6d7a77",
+                        "on-secondary": "#ffffff",
+                        "surface": "#f8f9ff",
+                        "surface-container-high": "#dce9ff",
+                        "on-background": "#0b1c30",
+                        "surface-container-highest": "#d3e4fe",
+                        "on-tertiary": "#ffffff",
+                        "primary-fixed": "#89f5e7",
+                        "on-secondary-fixed-variant": "#3f465c",
+                        "on-tertiary-fixed-variant": "#444749",
+                        "on-error": "#ffffff",
+                        "primary": "#00685f",
+                        "on-tertiary-container": "#fbfdff",
+                        "error": "#ba1a1a",
+                        "secondary-fixed": "#dae2fd",
+                        "primary-container": "#008378",
+                        "tertiary": "#595c5e",
+                        "surface-container": "#e5eeff",
+                        "on-error-container": "#93000a",
+                        "on-primary-container": "#f4fffc",
+                        "on-primary-fixed": "#00201d",
+                        "outline-variant": "#bcc9c6",
+                        "secondary-container": "#dae2fd",
+                        "tertiary-container": "#727577",
+                        "on-surface": "#0b1c30",
+                        "secondary-fixed-dim": "#bec6e0",
+                        "teal-accent": "#0D9488"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "xs": "4px",
+                        "gutter": "16px",
+                        "container-margin": "24px",
+                        "xl": "32px",
+                        "sm": "8px",
+                        "lg": "24px",
+                        "unit": "4px",
+                        "md": "16px"
+                    },
+                    "fontFamily": {
+                        "label-sm": ["Inter"],
+                        "label-md": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "mono-md": ["JetBrains Mono"],
+                        "headline-md": ["Inter"],
+                        "body-lg": ["Inter"],
+                        "body-md": ["Inter"]
+                    },
+                    "fontSize": {
+                        "label-sm": ["12px", { "lineHeight": "14px", "fontWeight": "500" }],
+                        "label-md": ["13px", { "lineHeight": "16px", "letterSpacing": "0.01em", "fontWeight": "500" }],
+                        "headline-lg": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.02em", "fontWeight": "600" }],
+                        "mono-md": ["13px", { "lineHeight": "18px", "fontWeight": "400" }],
+                        "headline-md": ["18px", { "lineHeight": "24px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+                        "body-lg": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "body-md": ["14px", { "lineHeight": "20px", "fontWeight": "400" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body { background-color: #F8FAFC; }
+        .window-drag { -webkit-app-region: drag; }
+        .no-drag { -webkit-app-region: no-drag; }
+        
+        /* Custom Scrollbar for list and log areas */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
+        
+        /* Input & Button Base Styles to match system */
+        .btn-base {
+            @apply flex items-center justify-center gap-2 rounded-lg font-label-md px-md py-sm transition-all duration-150;
+        }
+        .btn-secondary {
+            @apply bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 hover:border-slate-400 active:scale-95;
+        }
+        .btn-primary {
+            @apply bg-teal-accent text-white hover:bg-[#0f766e] active:scale-95 shadow-sm;
+        }
+        .input-base {
+            @apply bg-white border border-slate-300 rounded-lg px-md py-sm font-body-md text-on-surface focus:outline-none focus:ring-2 focus:ring-teal-accent focus:border-transparent w-full;
+        }
+        .card-panel {
+            @apply bg-white border border-slate-200 rounded-lg p-md shadow-sm;
+        }
+    </style>
+</head>
+<body class="text-on-surface h-screen flex flex-col overflow-hidden font-body-md">
+<!-- Title Bar (Simulated) -->
+<header class="window-drag bg-surface flex justify-between items-center px-4 py-2 border-b border-outline-variant/30 shrink-0">
+<div class="flex items-center gap-2 text-on-surface">
+<span class="material-symbols-outlined text-[#0D9488]" style="font-variation-settings: 'FILL' 1;">edit_document</span>
+<span class="font-label-md">Конвертер PDF</span>
+</div>
+<div class="flex gap-4 no-drag text-slate-400">
+<button class="hover:text-slate-600"><span class="material-symbols-outlined text-[18px]">minimize</span></button>
+<button class="hover:text-slate-600"><span class="material-symbols-outlined text-[18px]">crop_square</span></button>
+<button class="hover:text-red-500"><span class="material-symbols-outlined text-[18px]">close</span></button>
+</div>
+</header>
+<!-- Main Application Area -->
+<main class="flex-1 flex flex-col md:flex-row gap-lg p-lg overflow-y-auto w-full max-w-7xl mx-auto">
+<!-- Navigation Panel (SideNavBar JSON translated) -->
+<nav class="hidden md:flex flex-col w-64 bg-surface-container-low border-r border-outline-variant/50 rounded-lg p-md gap-sm shrink-0">
+<div class="mb-lg px-2">
+<h1 class="font-headline-md text-primary font-black">PDF Pro</h1>
+<p class="font-label-sm text-secondary">V2.4.0</p>
+</div>
+<button class="btn-primary w-full justify-center mb-md shadow-sm">
+<span class="material-symbols-outlined">add</span>
+                New Project
+            </button>
+<!-- Active Navigation Item -->
+<a class="flex items-center gap-3 px-3 py-2 bg-secondary-container text-on-secondary-container rounded-lg font-bold transition-all duration-200 ease-in-out group" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">folder_open</span>
+<span class="font-label-md">Workspace</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-on-surface-variant hover:bg-surface-container-highest rounded-lg transition-all duration-200 ease-in-out group" href="#">
+<span class="material-symbols-outlined">tune</span>
+<span class="font-label-md group-hover:text-primary">Templates</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-on-surface-variant hover:bg-surface-container-highest rounded-lg transition-all duration-200 ease-in-out group" href="#">
+<span class="material-symbols-outlined">list_alt</span>
+<span class="font-label-md group-hover:text-primary">Logs</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-on-surface-variant hover:bg-surface-container-highest rounded-lg transition-all duration-200 ease-in-out group" href="#">
+<span class="material-symbols-outlined">settings_ethernet</span>
+<span class="font-label-md group-hover:text-primary">Advanced</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-on-surface-variant hover:bg-surface-container-highest rounded-lg transition-all duration-200 ease-in-out group mt-auto" href="#">
+<span class="material-symbols-outlined">info</span>
+<span class="font-label-md group-hover:text-primary">About</span>
+</a>
+</nav>
+<!-- Content Canvas -->
+<div class="flex-1 flex flex-col gap-lg min-w-0">
+<!-- File Section -->
+<section class="flex flex-col gap-sm">
+<h2 class="font-headline-md text-on-surface">Файлы</h2>
+<div class="flex gap-md h-64">
+<!-- Drop Zone / File List -->
+<div class="flex-1 bg-white border-2 border-dashed border-slate-300 rounded-lg flex flex-col relative overflow-hidden bg-[#F0FDFA]/30 hover:bg-[#F0FDFA] transition-colors group">
+<!-- Empty State (Visible by default in this mockup) -->
+<div class="absolute inset-0 flex flex-col items-center justify-center text-slate-400 pointer-events-none">
+<span class="material-symbols-outlined text-4xl mb-2 text-slate-300">upload_file</span>
+<p class="font-body-md text-center px-4">Перетащите файлы или папки в окно<br/>(папки сканируются)</p>
+</div>
+<!-- Sample File Items (Hidden for empty state, structure provided) -->
+<!--
+                        <div class="overflow-y-auto h-full p-2 w-full z-10">
+                            <div class="flex items-center justify-between p-2 hover:bg-slate-50 rounded border-b border-slate-100">
+                                <div class="flex items-center gap-3">
+                                    <span class="material-symbols-outlined text-red-500">picture_as_pdf</span>
+                                    <span class="font-body-md truncate max-w-xs">document_draft.pdf</span>
+                                </div>
+                                <button class="text-slate-400 hover:text-red-500"><span class="material-symbols-outlined text-sm">close</span></button>
+                            </div>
+                        </div>
+                        -->
+</div>
+<!-- File Actions -->
+<div class="flex flex-col gap-2 w-48 shrink-0">
+<button class="btn-secondary w-full justify-start">
+<span class="material-symbols-outlined">add</span> Добавить...
+                        </button>
+<button class="btn-secondary w-full justify-start">
+<span class="material-symbols-outlined">remove</span> Убрать выбранное
+                        </button>
+<button class="btn-secondary w-full justify-start">
+<span class="material-symbols-outlined">call_split</span> Разделить PDF...
+                        </button>
+<div class="flex gap-2 mt-auto">
+<button class="btn-secondary flex-1 px-0 justify-center"><span class="material-symbols-outlined">arrow_upward</span></button>
+<button class="btn-secondary flex-1 px-0 justify-center"><span class="material-symbols-outlined">arrow_downward</span></button>
+</div>
+</div>
+</div>
+</section>
+<!-- Configuration Sections -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-lg">
+<!-- Output Folder -->
+<section class="card-panel flex flex-col gap-sm">
+<label class="font-label-md text-on-surface">Папка вывода</label>
+<div class="flex gap-2 items-center">
+<div class="relative flex-1">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">folder</span>
+<input class="input-base pl-9" readonly="" type="text" value="C:\Users\AVZ\Desktop"/>
+</div>
+<button class="btn-secondary shrink-0">Обзор...</button>
+<button class="btn-secondary shrink-0" title="Открыть папку"><span class="material-symbols-outlined">open_in_new</span></button>
+</div>
+</section>
+<!-- Quality & Settings -->
+<section class="card-panel flex flex-col gap-md justify-between">
+<div class="flex justify-between items-center border-b border-slate-100 pb-2 mb-2">
+<h3 class="font-label-md text-on-surface font-semibold">Качество / размер</h3>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-x-lg gap-y-4">
+<!-- Preset Dropdown -->
+<div class="flex items-center gap-2">
+<label class="font-body-md whitespace-nowrap">Пресет:</label>
+<select class="input-base py-1.5 flex-1">
+<option selected="" value="ebook">ebook</option>
+<option value="screen">screen</option>
+<option value="printer">printer</option>
+<option value="prepress">prepress</option>
+</select>
+</div>
+<!-- DPI Slider -->
+<div class="flex items-center gap-3">
+<label class="font-body-md whitespace-nowrap">DPI (custom):</label>
+<div class="flex-1 flex items-center">
+<input class="w-full h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-teal-accent" max="600" min="72" type="range" value="150"/>
+</div>
+<span class="font-mono-md text-slate-500 text-xs w-8 text-right">150</span>
+</div>
+<!-- Checkboxes -->
+<div class="flex items-center gap-2">
+<input class="w-4 h-4 text-teal-accent border-slate-300 rounded focus:ring-teal-accent" id="chk-grayscale" type="checkbox"/>
+<label class="font-body-md cursor-pointer select-none" for="chk-grayscale">Ч/Б (grayscale)</label>
+</div>
+<div class="flex items-center gap-2">
+<input class="w-4 h-4 text-teal-accent border-slate-300 rounded focus:ring-teal-accent" id="chk-merge" type="checkbox"/>
+<label class="font-body-md cursor-pointer select-none" for="chk-merge">Объединить всё в один PDF</label>
+</div>
+</div>
+</section>
+</div>
+<!-- Execution Area -->
+<section class="flex flex-col gap-4 mt-auto">
+<div class="flex items-center justify-between text-sm">
+<div class="flex items-center gap-2 text-slate-500 font-mono-md text-xs bg-slate-100 px-2 py-1 rounded">
+<span class="material-symbols-outlined text-sm">terminal</span>
+                        Ghostscript: C:\Program Files\gs\gs10.07.1\bin\gswin64c.exe
+                    </div>
+</div>
+<div class="flex justify-center my-2">
+<button class="btn-primary w-48 py-3 text-base shadow-md font-bold">
+                        Конвертировать
+                    </button>
+</div>
+<!-- Progress Bar -->
+<div class="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
+<div class="h-full bg-teal-accent w-0 rounded-full transition-all duration-300" style="width: 0%;"></div>
+</div>
+<!-- Log Panel -->
+<div class="flex flex-col gap-2">
+<div class="flex justify-between items-end">
+<label class="font-label-sm text-slate-500">Лог выполнения</label>
+<button class="text-xs font-label-md text-slate-500 hover:text-teal-accent flex items-center gap-1 transition-colors">
+<span class="material-symbols-outlined text-sm">content_copy</span> Копировать лог
+                        </button>
+</div>
+<div class="bg-white border border-slate-300 rounded-lg p-3 h-32 font-mono-md text-xs overflow-y-auto text-slate-600 shadow-inner">
+<!-- Log content would go here -->
+<div class="text-slate-400 italic">Ожидание действий...</div>
+</div>
+</div>
+</section>
+</div>
+</main>
+</body></html>

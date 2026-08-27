@@ -39,6 +39,27 @@ SUPPORTED_EXTS = IMAGE_EXTS | OFFICE_EXTS | HTML_EXTS | TEXT_EXTS
 
 PRESETS = ["screen", "ebook", "printer", "prepress", "custom"]
 
+# Палитра дизайн-системы "Aura PDF" (DESIGN.md / code.html)
+COLORS = {
+    "surface": "#f8f9ff",
+    "surface_lowest": "#ffffff",
+    "surface_low": "#eff4ff",
+    "surface_high": "#dce9ff",
+    "surface_container": "#e5eeff",
+    "on_surface": "#0b1c30",
+    "on_surface_variant": "#3d4947",
+    "outline": "#6d7a77",
+    "outline_variant": "#bcc9c6",
+    "primary": "#0D9488",
+    "primary_hover": "#0f766e",
+    "on_primary": "#ffffff",
+    "secondary": "#565e74",
+    "secondary_container": "#dae2fd",
+    "on_secondary_container": "#5c647a",
+    "error": "#ba1a1a",
+    "log_fg": "#3d4947",
+}
+
 _APPDATA_DIR = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "pdfconv")
 _SETTINGS_PATH = os.path.join(_APPDATA_DIR, "settings.json")
 _LOG_DIR = os.path.join(_APPDATA_DIR, "logs")
@@ -119,8 +140,9 @@ class App(_DND_BASE):
     def __init__(self):
         super().__init__()
         self.title("PDF Converter")
-        self.geometry("640x580")
+        self.geometry("660x620")
         self._apply_window_icon()
+        self._apply_theme()
 
         self.settings = self._load_settings()
         self.files: list[str] = []
@@ -144,6 +166,126 @@ class App(_DND_BASE):
             self.iconbitmap(icon)
         except tk.TclError:
             pass
+
+    def _apply_theme(self):
+        """Применяет палитру/типографику дизайн-системы 'Aura PDF' к ttk-виджетам."""
+        import tkinter.font as tkfont
+
+        try:
+            avail = [f.lower() for f in tkfont.families()]
+            ui = "Inter" if "inter" in avail else "Segoe UI"
+            mono = "JetBrains Mono" if "jetbrains mono" in avail else "Consolas"
+        except Exception:
+            ui, mono = "Segoe UI", "Consolas"
+        self._ui_font = ui
+        self._mono_font = mono
+
+        self.configure(background=COLORS["surface"])
+        style = ttk.Style()
+        style.theme_use("clam")
+        C = COLORS
+
+        style.configure(".", font=(ui, 10))
+        style.configure("TFrame", background=C["surface"])
+        style.configure(
+            "TLabel",
+            background=C["surface"],
+            foreground=C["on_surface"],
+            font=(ui, 11),
+        )
+        style.configure(
+            "Header.TLabel",
+            font=(ui, 15, "bold"),
+            foreground=C["primary"],
+            background=C["surface"],
+        )
+        style.configure(
+            "TLabelFrame",
+            background=C["surface_lowest"],
+            foreground=C["on_surface"],
+            bordercolor=C["outline_variant"],
+            borderwidth=1,
+            relief="flat",
+            labelmargins=(8, 6),
+            font=(ui, 11, "bold"),
+        )
+        style.configure(
+            "TButton",
+            background=C["surface_lowest"],
+            foreground=C["on_surface"],
+            bordercolor=C["outline_variant"],
+            borderwidth=1,
+            relief="flat",
+            font=(ui, 10, "bold"),
+            padding=(10, 6),
+        )
+        style.map(
+            "TButton",
+            background=[("active", C["surface_low"]), ("pressed", C["surface_low"])],
+        )
+        style.configure(
+            "Accent.TButton",
+            background=C["primary"],
+            foreground=C["on_primary"],
+            borderwidth=0,
+            relief="flat",
+            font=(ui, 11, "bold"),
+            padding=(14, 8),
+        )
+        style.map(
+            "Accent.TButton",
+            background=[("active", C["primary_hover"]), ("pressed", C["primary_hover"])],
+        )
+        style.configure(
+            "TEntry",
+            fieldbackground=C["surface_lowest"],
+            background=C["surface_lowest"],
+            foreground=C["on_surface"],
+            bordercolor=C["outline_variant"],
+            relief="flat",
+            borderwidth=1,
+            padding=5,
+        )
+        style.configure(
+            "TCombobox",
+            fieldbackground=C["surface_lowest"],
+            background=C["surface_lowest"],
+            foreground=C["on_surface"],
+            bordercolor=C["outline_variant"],
+            relief="flat",
+            borderwidth=1,
+            padding=5,
+            arrowssize=12,
+        )
+        style.map("TCombobox", fieldbackground=[("readonly", C["surface_lowest"])])
+        style.configure(
+            "TCheckbutton",
+            background=C["surface_lowest"],
+            foreground=C["on_surface"],
+            font=(ui, 10),
+        )
+        style.map("TCheckbutton", indicatorcolor=[("selected", C["primary"])])
+        style.configure(
+            "Horizontal.TScale",
+            background=C["primary"],
+            troughcolor=C["surface_high"],
+            sliderrelief="flat",
+            sliderlength=18,
+            borderwidth=0,
+        )
+        style.map(
+            "Horizontal.TScale",
+            background=[("active", C["primary_hover"]), ("disabled", C["outline_variant"])],
+        )
+        style.configure(
+            "TProgressbar", troughcolor=C["surface_high"], background=C["primary"], borderwidth=0
+        )
+        style.configure(
+            "Horizontal.TProgressbar",
+            troughcolor=C["surface_high"],
+            background=C["primary"],
+            borderwidth=0,
+        )
 
     @staticmethod
     def _load_settings() -> dict:
@@ -226,10 +368,26 @@ class App(_DND_BASE):
         )
         saved_preset = s.get("preset") if s.get("preset") in PRESETS else "ebook"
 
+        # Верхняя шапка (логотип + название)
+        header = ttk.Frame(self)
+        header.pack(fill="x", pady=(0, 4))
+        logo = tk.Label(
+            header, text="PDF", bg=COLORS["primary"], fg=COLORS["on_primary"],
+            font=(self._ui_font, 11, "bold"), padx=8, pady=3,
+        )
+        logo.pack(side="left", padx=(12, 8), pady=8)
+        ttk.Label(header, text="Конвертер PDF", style="Header.TLabel").pack(side="left", pady=8)
+
         frm_files = ttk.LabelFrame(self, text="Файлы")
         frm_files.pack(fill="both", expand=True, padx=10, pady=10)
 
-        self.listbox = tk.Listbox(frm_files, selectmode=tk.EXTENDED)
+        self.listbox = tk.Listbox(
+            frm_files, selectmode=tk.EXTENDED,
+            bg=COLORS["surface_lowest"], fg=COLORS["on_surface"],
+            selectbackground=COLORS["primary"], selectforeground=COLORS["on_primary"],
+            font=(self._ui_font, 10), borderwidth=1, relief="flat",
+            highlightthickness=0, activestyle="none",
+        )
         self.listbox.pack(fill="both", expand=True, side="left", padx=5, pady=5)
 
         btns = ttk.Frame(frm_files)
@@ -339,15 +497,19 @@ class App(_DND_BASE):
             else "Ghostscript не найден — сжатие будет пропущено"
         )
         self.gs_label = ttk.Label(
-            self, text=gs_status, foreground=("black" if self.gs_path else "red")
+            self, text=gs_status,
+            foreground=(COLORS["on_surface_variant"] if self.gs_path else COLORS["error"]),
+            font=(self._mono_font, 9),
         )
-        self.gs_label.pack(anchor="w", padx=12)
+        self.gs_label.pack(anchor="w", padx=12, pady=(2, 0))
 
-        self.convert_btn = ttk.Button(self, text="Конвертировать", command=self.start_convert)
-        self.convert_btn.pack(pady=8)
+        self.convert_btn = ttk.Button(
+            self, text="Конвертировать", command=self.start_convert, style="Accent.TButton"
+        )
+        self.convert_btn.pack(pady=10)
 
         frm_progress = ttk.Frame(self)
-        frm_progress.pack(fill="x", padx=10)
+        frm_progress.pack(fill="x", padx=12, pady=(0, 6))
         self.progress = ttk.Progressbar(frm_progress, mode="determinate")
         self.progress.pack(side="left", fill="x", expand=True)
         self.progress_lbl = ttk.Label(frm_progress, text="", width=10, anchor="e")
@@ -361,7 +523,13 @@ class App(_DND_BASE):
             row_log, text="Копировать лог", command=self.copy_log
         )
         self.copy_log_btn.pack(side="right")
-        self.log = tk.Text(frm_log, height=9)
+        self.log = tk.Text(
+            frm_log, height=9,
+            bg=COLORS["surface_lowest"], fg=COLORS["log_fg"],
+            font=(self._mono_font, 9), borderwidth=1, relief="flat",
+            selectbackground=COLORS["primary"], selectforeground=COLORS["on_primary"],
+            padx=6, pady=6, insertbackground=COLORS["on_surface"],
+        )
         self.log.pack(fill="both", expand=True)
         self.log.bind("<Control-c>", self._log_ctrl_c)
 
@@ -765,6 +933,7 @@ class PreviewWindow(tk.Toplevel):
         self.title("Предпросмотр сжатия")
         self.geometry("760x560")
         self.transient(master)
+        self.configure(background=COLORS["surface"])
         self.image_paths = list(image_paths)
         self.on_apply = on_apply
         self._after_id = None
