@@ -287,7 +287,7 @@ class App(_DND_BASE):
             foreground=C["on_surface"],
             bordercolor=C["outline_variant"],
             borderwidth=1,
-            relief="flat",
+            relief="solid",
             font=(ui, 10, "bold"),
             padding=(10, 6),
         )
@@ -440,6 +440,8 @@ class App(_DND_BASE):
         )
         saved_preset = s.get("preset") if s.get("preset") in PRESETS else "ebook"
 
+        self._init_quality_vars(s, saved_preset, out_dir_default)
+
         # Шапка
         header = ttk.Frame(self)
         header.pack(fill="x", pady=(0, 4))
@@ -475,7 +477,7 @@ class App(_DND_BASE):
 
         self.sections = {}
         self.sections["files"] = self._build_files_card(content, s)
-        self.sections["settings"] = self._build_settings_card(content, s, saved_preset, out_dir_default)
+        self.sections["settings"] = self._build_settings_card(content, s)
         self.sections["log"] = self._build_log_card(content)
 
         # Нижний колонтитул (всегда видимый): статус GS + кнопка + прогресс
@@ -527,12 +529,33 @@ class App(_DND_BASE):
                     activebackground=COLORS["surface_low"],
                 )
 
+    def _init_quality_vars(self, s, saved_preset, out_dir_default):
+        self.out_dir_var = tk.StringVar(value=out_dir_default)
+        self.preset_var = tk.StringVar(value=saved_preset)
+        dpi_saved = s.get("dpi", 150)
+        try:
+            dpi_saved = float(dpi_saved)
+        except (TypeError, ValueError):
+            dpi_saved = 150.0
+        self.dpi_var = tk.DoubleVar(value=max(30, min(300, dpi_saved)))
+        jpeg_saved = s.get("jpeg_quality", 75)
+        try:
+            jpeg_saved = int(jpeg_saved)
+        except (TypeError, ValueError):
+            jpeg_saved = 75
+        self.jpeg_var = tk.IntVar(value=max(10, min(95, jpeg_saved)))
+        self.grayscale_var = tk.BooleanVar(value=bool(s.get("grayscale", False)))
+        self.merge_var = tk.BooleanVar(value=bool(s.get("merge", False)))
+
     def _build_files_card(self, master, s):
         card = Card(master, pad=16)
         inner = card.inner
         ttk.Label(inner, text="Файлы", style="CardTitle.TLabel").pack(anchor="w", pady=(0, 8))
-        frm = tk.Frame(inner, bg=COLORS["surface_lowest"])
-        frm.pack(fill="both", expand=True)
+        h = tk.Frame(inner, bg=COLORS["surface_lowest"])
+        h.pack(fill="both", expand=True)
+
+        frm = tk.Frame(h, bg=COLORS["surface_lowest"])
+        frm.pack(side="left", fill="both", expand=True, padx=(0, 4))
         self.listbox = tk.Listbox(
             frm, selectmode=tk.EXTENDED,
             bg=COLORS["surface_lowest"], fg=COLORS["on_surface"],
@@ -562,11 +585,22 @@ class App(_DND_BASE):
             self.listbox.dnd_bind("<<Drop>>", self._on_drop)
         else:
             hint = "Drag'n'drop недоступен: не установлен пакет tkinterdnd2"
-        ttk.Label(inner, text=hint, style="Card.TLabel",
-                  foreground=COLORS["on_surface_variant"]).pack(anchor="w", pady=(6, 0))
+        ttk.Label(frm, text=hint, style="Card.TLabel",
+                  foreground=COLORS["on_surface_variant"]).pack(anchor="w", padx=4, pady=(4, 0))
+
+        # Живой предпросмотр сжатия — сразу на главной странице
+        self.preview_panel = PreviewPanel(
+            h,
+            image_provider=lambda: [
+                f for f in self.files if os.path.splitext(f)[1].lower() in IMAGE_EXTS
+            ],
+            dpi_var=self.dpi_var, jpeg_var=self.jpeg_var, gray_var=self.grayscale_var,
+            on_apply=self._apply_preview_settings,
+        )
+        self.preview_panel.pack(side="right", fill="both", expand=True, padx=(4, 0))
         return card
 
-    def _build_settings_card(self, master, s, saved_preset, out_dir_default):
+    def _build_settings_card(self, master, s):
         card = Card(master, pad=16)
         inner = card.inner
         ttk.Label(inner, text="Настройки", style="CardTitle.TLabel").pack(anchor="w", pady=(0, 8))
@@ -574,7 +608,6 @@ class App(_DND_BASE):
         ttk.Label(inner, text="Папка вывода", style="Card.TLabel").pack(anchor="w", pady=(2, 2))
         frm_out = tk.Frame(inner, bg=COLORS["surface_lowest"])
         frm_out.pack(fill="x", pady=(0, 10))
-        self.out_dir_var = tk.StringVar(value=out_dir_default)
         ttk.Entry(frm_out, textvariable=self.out_dir_var).pack(
             side="left", fill="x", expand=True, padx=5, pady=5
         )
@@ -586,64 +619,26 @@ class App(_DND_BASE):
         ttk.Label(inner, text="Качество / размер", style="Card.TLabel").pack(anchor="w", pady=(2, 2))
         q = tk.Frame(inner, bg=COLORS["surface_lowest"])
         q.pack(fill="x", pady=(0, 8))
-
         ttk.Label(q, text="Пресет:", style="Card.TLabel").grid(row=0, column=0, sticky="w", padx=5, pady=5)
-        self.preset_var = tk.StringVar(value=saved_preset)
         preset_combo = ttk.Combobox(
             q, textvariable=self.preset_var, values=PRESETS, state="readonly"
         )
         preset_combo.grid(row=0, column=1, sticky="w", padx=5, pady=5)
         preset_combo.bind("<<ComboboxSelected>>", self._toggle_custom)
 
-        ttk.Label(q, text="DPI (custom):", style="Card.TLabel").grid(row=0, column=2, sticky="w", padx=5, pady=5)
-        dpi_saved = s.get("dpi", 150)
-        try:
-            dpi_saved = float(dpi_saved)
-        except (TypeError, ValueError):
-            dpi_saved = 150.0
-        self.dpi_var = tk.DoubleVar(value=max(30, min(300, dpi_saved)))
-        self.dpi_scale = ttk.Scale(
-            q, from_=30, to=300, variable=self.dpi_var, orient="horizontal",
-            command=self._on_scale,
-        )
-        self.dpi_scale.grid(row=0, column=3, sticky="we", padx=5, pady=5)
-        self.dpi_val_lbl = ttk.Label(q, text=str(int(round(self.dpi_var.get()))), width=5, style="Card.TLabel")
-        self.dpi_val_lbl.grid(row=0, column=4, padx=2, pady=5)
-
-        ttk.Label(q, text="JPEG качество (custom):", style="Card.TLabel").grid(
-            row=2, column=0, columnspan=2, sticky="w", padx=5, pady=5
-        )
-        jpeg_saved = s.get("jpeg_quality", 75)
-        try:
-            jpeg_saved = int(jpeg_saved)
-        except (TypeError, ValueError):
-            jpeg_saved = 75
-        self.jpeg_var = tk.IntVar(value=max(10, min(95, jpeg_saved)))
-        self.jpeg_scale = ttk.Scale(
-            q, from_=10, to=95, variable=self.jpeg_var, orient="horizontal",
-            command=self._on_scale,
-        )
-        self.jpeg_scale.grid(row=2, column=2, columnspan=2, sticky="we", padx=5, pady=5)
-        self.jpeg_val_lbl = ttk.Label(q, text=str(int(round(self.jpeg_var.get()))), width=5, style="Card.TLabel")
-        self.jpeg_val_lbl.grid(row=2, column=4, padx=2, pady=5)
-
-        self.grayscale_var = tk.BooleanVar(value=bool(s.get("grayscale", False)))
         ttk.Checkbutton(
             q, text="Ч/Б (grayscale)", variable=self.grayscale_var, style="Card.TCheckbutton"
         ).grid(row=1, column=0, columnspan=2, sticky="w", padx=5, pady=5)
-
-        self.merge_var = tk.BooleanVar(value=bool(s.get("merge", False)))
         ttk.Checkbutton(
             q, text="Объединить всё в один PDF", variable=self.merge_var, style="Card.TCheckbutton"
         ).grid(row=1, column=2, columnspan=2, sticky="w", padx=5, pady=5)
-
         q.columnconfigure(3, weight=1)
 
         frm_preview = tk.Frame(inner, bg=COLORS["surface_lowest"])
         frm_preview.pack(fill="x", pady=(4, 0))
-        ttk.Button(frm_preview, text="Предпросмотр сжатия...", command=self.open_preview).pack(side="left")
+        ttk.Button(frm_preview, text="Открыть предпросмотр отдельно...", command=self.open_preview).pack(side="left")
         ttk.Label(
-            frm_preview, text="Смотрите размер/качество до и после в реальном времени",
+            frm_preview, text="Живой предпросмотр — на вкладке «Файлы»",
             style="Card.TLabel", foreground=COLORS["on_surface_variant"],
         ).pack(side="left", padx=6)
         return card
@@ -686,16 +681,12 @@ class App(_DND_BASE):
         return "break"
 
     def _toggle_custom(self, _event=None):
-        if self.preset_var.get() == "custom":
-            self.dpi_scale.state(["!disabled"])
-            self.jpeg_scale.state(["!disabled"])
-        else:
-            self.dpi_scale.state(["disabled"])
-            self.jpeg_scale.state(["disabled"])
+        # Ползунки предпросмотра всегда активны (привязаны к настройкам)
+        pass
 
-    def _on_scale(self, _event=None):
-        self.dpi_val_lbl.configure(text=str(int(round(self.dpi_var.get()))))
-        self.jpeg_val_lbl.configure(text=str(int(round(self.jpeg_var.get()))))
+    def _apply_preview_settings(self):
+        self.preset_var.set("custom")
+        self._persist_settings()
 
     def add_files(self):
         paths = filedialog.askopenfilenames(
@@ -737,12 +728,18 @@ class App(_DND_BASE):
                 self.files.append(p)
                 self.listbox.insert(tk.END, p)
                 added += 1
+        panel = getattr(self, "preview_panel", None)
+        if panel is not None:
+            panel.refresh_images()
         return added
 
     def remove_selected(self):
         for i in reversed(self.listbox.curselection()):
             del self.files[i]
             self.listbox.delete(i)
+        panel = getattr(self, "preview_panel", None)
+        if panel is not None:
+            panel.refresh_images()
 
     def move_up(self):
         sel = self.listbox.curselection()
@@ -1043,56 +1040,45 @@ class App(_DND_BASE):
             )
             return
 
-        dpi = int(round(float(self.dpi_var.get())))
-        q = int(round(float(self.jpeg_var.get())))
-        gray = bool(self.grayscale_var.get())
-
-        def apply(dpi_, q_, gray_):
+        def apply():
             self.preset_var.set("custom")
-            self.dpi_var.set(dpi_)
-            self.jpeg_var.set(q_)
-            self.grayscale_var.set(gray_)
-            self._toggle_custom()
-            self._on_scale()
             self._persist_settings()
 
-        PreviewWindow(self, image_files, dpi, q, gray, apply)
+        PreviewWindow(self, image_files, self.dpi_var, self.jpeg_var, self.grayscale_var, apply)
 
 
-class PreviewWindow(tk.Toplevel):
+class PreviewPanel(tk.Frame):
+    """Встраиваемая панель живого предпросмотра сжатия изображения."""
+
     DEBOUNCE_MS = 160
 
-    def __init__(self, master, image_paths, dpi, quality, grayscale, on_apply):
-        super().__init__(master)
-        self.title("Предпросмотр сжатия")
-        self.geometry("760x560")
-        self.transient(master)
-        self.configure(background=COLORS["surface"])
-        self.image_paths = list(image_paths)
+    def __init__(self, master, image_provider, dpi_var, jpeg_var, gray_var, on_apply, **kw):
+        super().__init__(master, **kw)
+        self.image_provider = image_provider
+        self.dpi_var = dpi_var
+        self.jpeg_var = jpeg_var
+        self.gray_var = gray_var
         self.on_apply = on_apply
         self._after_id = None
         self._photo_orig = None
         self._photo_comp = None
 
         top = ttk.Frame(self)
-        top.pack(fill="x", padx=10, pady=8)
-        ttk.Label(top, text="Изображение:").pack(side="left")
-        self.var_image = tk.StringVar(value=os.path.basename(self.image_paths[0]))
-        self.combo = ttk.Combobox(
-            top, textvariable=self.var_image, width=46,
-            values=[os.path.basename(p) for p in self.image_paths], state="readonly",
-        )
+        top.pack(fill="x", padx=6, pady=4)
+        ttk.Label(top, text="Изображение:", style="Card.TLabel").pack(side="left")
+        self.var_image = tk.StringVar()
+        self.combo = ttk.Combobox(top, textvariable=self.var_image, state="readonly", width=26)
         self.combo.pack(side="left", padx=6)
         self.combo.bind("<<ComboboxSelected>>", lambda _e: self._schedule())
 
         frm = tk.Frame(self, bg=COLORS["surface"])
-        frm.pack(fill="both", expand=True, padx=10)
-        left = Card(frm, radius=14, pad=12)
-        left.pack(side="left", fill="both", expand=True, padx=(0, 5))
-        right = Card(frm, radius=14, pad=12)
-        right.pack(side="left", fill="both", expand=True, padx=(5, 0))
-        ttk.Label(left.inner, text="Оригинал", style="CardTitle.TLabel").pack(anchor="w", pady=(0, 6))
-        ttk.Label(right.inner, text="Сжатая версия", style="CardTitle.TLabel").pack(anchor="w", pady=(0, 6))
+        frm.pack(fill="both", expand=True, padx=6)
+        left = Card(frm, radius=12, pad=10)
+        left.pack(side="left", fill="both", expand=True, padx=(0, 4))
+        right = Card(frm, radius=12, pad=10)
+        right.pack(side="left", fill="both", expand=True, padx=(4, 0))
+        ttk.Label(left.inner, text="Оригинал", style="CardTitle.TLabel").pack(anchor="w", pady=(0, 4))
+        ttk.Label(right.inner, text="Сжатая версия", style="CardTitle.TLabel").pack(anchor="w", pady=(0, 4))
         self.lbl_orig_img = ttk.Label(left.inner, style="Card.TLabel")
         self.lbl_orig_img.pack(expand=True)
         self.lbl_orig_info = ttk.Label(left.inner, style="Card.TLabel")
@@ -1102,50 +1088,55 @@ class PreviewWindow(tk.Toplevel):
         self.lbl_comp_info = ttk.Label(right.inner, style="Card.TLabel")
         self.lbl_comp_info.pack(pady=4)
 
-        ctrls = Card(self, radius=14, pad=12)
-        ctrls.inner.configure(pady=0)
-        ctrls.pack(fill="x", padx=10, pady=6)
-        ttk.Label(ctrls.inner, text="Параметры сжатия", style="CardTitle.TLabel").pack(anchor="w", pady=(0, 6))
-        self.var_dpi = tk.DoubleVar(value=dpi)
-        self.var_q = tk.IntVar(value=quality)
-        self.var_gray = tk.BooleanVar(value=grayscale)
-
+        ctrls = Card(self, radius=12, pad=10)
+        ctrls.pack(fill="x", padx=6, pady=4)
+        ttk.Label(ctrls.inner, text="Параметры сжатия", style="CardTitle.TLabel").pack(anchor="w", pady=(0, 4))
         r1 = tk.Frame(ctrls.inner, bg=COLORS["surface_lowest"])
-        r1.pack(fill="x", padx=8, pady=4)
+        r1.pack(fill="x", padx=6, pady=3)
         ttk.Label(r1, text="DPI:").pack(side="left")
-        ttk.Scale(r1, from_=30, to=300, variable=self.var_dpi, orient="horizontal").pack(
+        ttk.Scale(r1, from_=30, to=300, variable=self.dpi_var, orient="horizontal").pack(
             side="left", fill="x", expand=True, padx=6
         )
-        self.dpi_lbl = ttk.Label(r1, text=str(int(round(dpi))), width=5)
+        self.dpi_lbl = ttk.Label(r1, text=str(int(round(self.dpi_var.get()))), width=5, style="Card.TLabel")
         self.dpi_lbl.pack(side="left")
-        self.var_dpi.trace_add("write", self._on_change)
-
         r2 = tk.Frame(ctrls.inner, bg=COLORS["surface_lowest"])
-        r2.pack(fill="x", padx=8, pady=4)
+        r2.pack(fill="x", padx=6, pady=3)
         ttk.Label(r2, text="JPEG:").pack(side="left")
-        ttk.Scale(r2, from_=10, to=95, variable=self.var_q, orient="horizontal").pack(
+        ttk.Scale(r2, from_=10, to=95, variable=self.jpeg_var, orient="horizontal").pack(
             side="left", fill="x", expand=True, padx=6
         )
-        self.q_lbl = ttk.Label(r2, text=str(int(round(quality))), width=5)
+        self.q_lbl = ttk.Label(r2, text=str(int(round(self.jpeg_var.get()))), width=5, style="Card.TLabel")
         self.q_lbl.pack(side="left")
-        self.var_q.trace_add("write", self._on_change)
-
         r3 = tk.Frame(ctrls.inner, bg=COLORS["surface_lowest"])
-        r3.pack(fill="x", padx=8, pady=4)
-        ttk.Checkbutton(r3, text="Ч/Б (grayscale)", variable=self.var_gray, command=self._schedule).pack(side="left")
+        r3.pack(fill="x", padx=6, pady=3)
+        ttk.Checkbutton(
+            r3, text="Ч/Б (grayscale)", variable=self.gray_var, command=self._schedule,
+            style="Card.TCheckbutton",
+        ).pack(side="left")
         self.est_lbl = ttk.Label(r3, text="", foreground="blue")
         self.est_lbl.pack(side="left", padx=10)
 
         bottom = ttk.Frame(self)
-        bottom.pack(fill="x", padx=10, pady=8)
-        ttk.Button(bottom, text="Закрыть", command=self.destroy).pack(side="right")
-        ttk.Button(bottom, text="Применить к настройкам", command=self._apply).pack(side="right", padx=6)
+        bottom.pack(fill="x", padx=6, pady=4)
+        ttk.Button(bottom, text="Применить к настройкам", command=self._apply).pack(side="right")
 
+        self.dpi_var.trace_add("write", self._on_change)
+        self.jpeg_var.trace_add("write", self._on_change)
+        self.refresh_images()
         self._update()
 
     def _on_change(self, *_a):
-        self.dpi_lbl.configure(text=str(int(round(self.var_dpi.get()))))
-        self.q_lbl.configure(text=str(int(round(self.var_q.get()))))
+        self.dpi_lbl.configure(text=str(int(round(self.dpi_var.get()))))
+        self.q_lbl.configure(text=str(int(round(self.jpeg_var.get()))))
+        self._schedule()
+
+    def refresh_images(self):
+        names = [os.path.basename(p) for p in self.image_provider()]
+        self.combo.configure(values=names)
+        if names and self.var_image.get() not in names:
+            self.var_image.set(names[0])
+        elif not names:
+            self.var_image.set("")
         self._schedule()
 
     def _schedule(self):
@@ -1154,11 +1145,21 @@ class PreviewWindow(tk.Toplevel):
         self._after_id = self.after(self.DEBOUNCE_MS, self._update)
 
     def _current_path(self):
+        paths = self.image_provider()
+        if not paths:
+            return None
         idx = self.combo.current()
-        return self.image_paths[idx if idx >= 0 else 0]
+        if idx < 0:
+            idx = 0
+        return paths[idx]
 
     def _update(self):
         path = self._current_path()
+        if not path:
+            self.lbl_orig_info.configure(text="Нет изображений")
+            self.lbl_comp_info.configure(text="")
+            self.est_lbl.configure(text="")
+            return
         try:
             with Image.open(path) as im:
                 base = ImageOps.exif_transpose(im)
@@ -1168,21 +1169,21 @@ class PreviewWindow(tk.Toplevel):
             return
 
         disp = base.copy()
-        disp.thumbnail((300, 300))
+        disp.thumbnail((260, 260))
         self._photo_orig = ImageTk.PhotoImage(disp)
         self.lbl_orig_img.configure(image=self._photo_orig)
         self.lbl_orig_info.configure(text=f"{base.width}x{base.height}, {fmt_size(orig_bytes)}")
 
-        dpi = int(round(self.var_dpi.get()))
-        q = int(round(self.var_q.get()))
-        gray = self.var_gray.get()
+        dpi = int(round(self.dpi_var.get()))
+        q = int(round(self.jpeg_var.get()))
+        gray = self.gray_var.get()
         try:
             comp, size = render_compressed(path, dpi, q, gray)
         except Exception as e:
             self.lbl_comp_info.configure(text=f"Ошибка: {e}")
             return
         disp2 = comp.copy()
-        disp2.thumbnail((300, 300))
+        disp2.thumbnail((260, 260))
         self._photo_comp = ImageTk.PhotoImage(disp2)
         self.lbl_comp_img.configure(image=self._photo_comp)
         mode = "Ч/Б" if gray else "цвет"
@@ -1192,12 +1193,26 @@ class PreviewWindow(tk.Toplevel):
         self.est_lbl.configure(text=f"Оценка: {fmt_size(orig_bytes)} -> ~{fmt_size(size)}")
 
     def _apply(self):
-        self.on_apply(
-            int(round(self.var_dpi.get())),
-            int(round(self.var_q.get())),
-            self.var_gray.get(),
+        self.on_apply()
+
+
+class PreviewWindow(tk.Toplevel):
+    """Отдельное окно предпросмотра (обёртка над PreviewPanel)."""
+
+    def __init__(self, master, image_paths, dpi_var, jpeg_var, gray_var, on_apply):
+        super().__init__(master)
+        self.title("Предпросмотр сжатия")
+        self.geometry("760x560")
+        self.transient(master)
+        self.configure(background=COLORS["surface"])
+        self.panel = PreviewPanel(
+            self, lambda: list(image_paths), dpi_var, jpeg_var, gray_var, on_apply
         )
-        self.destroy()
+        self.panel.pack(fill="both", expand=True, padx=8, pady=8)
+        self.lbl_orig_info = self.panel.lbl_orig_info
+        self.lbl_comp_info = self.panel.lbl_comp_info
+        self.var_gray = self.panel.gray_var
+        self._update = self.panel._update
 
 
 if __name__ == "__main__":
