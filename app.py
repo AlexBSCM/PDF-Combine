@@ -182,9 +182,15 @@ class App(_DND_BASE):
     def __init__(self):
         super().__init__()
         self.title("PDF Converter")
-        self.geometry("760x700")
         self._apply_window_icon()
         self._apply_theme()
+
+        sw = self.winfo_screenwidth()
+        sh = self.winfo_screenheight()
+        w = min(1080, max(820, sw - 60))
+        h = min(760, max(600, sh - 60))
+        self.geometry(f"{w}x{h}")
+        self.minsize(760, 560)
 
         self.settings = self._load_settings()
         self.files: list[str] = []
@@ -441,80 +447,49 @@ class App(_DND_BASE):
         saved_preset = s.get("preset") if s.get("preset") in PRESETS else "ebook"
 
         self._init_quality_vars(s, saved_preset, out_dir_default)
+        self._preview_window = None
 
-        # Шапка
-        header = ttk.Frame(self)
-        header.pack(fill="x", pady=(0, 4))
-        tk.Label(
-            header, text="PDF", bg=COLORS["primary"], fg=COLORS["on_primary"],
-            font=(self._ui_font, 11, "bold"), padx=8, pady=3,
-        ).pack(side="left", padx=(12, 8), pady=8)
-        ttk.Label(header, text="Конвертер PDF", style="Header.TLabel").pack(side="left", pady=8)
-
-        # Тело: сайдбар + контент
-        body = tk.Frame(self, bg=COLORS["surface"])
-        body.pack(fill="both", expand=True)
-
-        sidebar = tk.Frame(body, bg=COLORS["surface"], width=96)
-        sidebar.pack(side="left", fill="y", padx=(6, 0), pady=8)
-        sidebar.pack_propagate(False)
-
+        # Верхняя панель вкладок (отдельные плашки)
+        tabbar = tk.Frame(self, bg=COLORS["surface"])
+        tabbar.pack(fill="x", padx=10, pady=(8, 4))
         self._nav_buttons = {}
         for key, label in (("files", "Файлы"), ("settings", "Настройки"), ("log", "Лог")):
             b = tk.Button(
-                sidebar, text=label, anchor="w", relief="flat", bd=0,
+                tabbar, text=label, relief="flat", bd=0,
                 bg=COLORS["surface"], fg=COLORS["on_surface"],
-                activebackground=COLORS["surface_low"], font=(self._ui_font, 10),
-                padx=6, pady=8, cursor="hand2",
+                activebackground=COLORS["surface_low"], font=(self._ui_font, 11),
+                padx=18, pady=8, cursor="hand2",
                 highlightbackground=COLORS["outline_variant"], highlightthickness=1,
                 command=lambda k=key: self._show_section(k),
             )
-            b.pack(fill="x", pady=2)
+            b.pack(side="left", padx=4)
             self._nav_buttons[key] = b
 
-        content = tk.Frame(body, bg=COLORS["surface"])
-        content.pack(side="left", fill="both", expand=True, padx=(0, 10), pady=8)
+        content = tk.Frame(self, bg=COLORS["surface"])
+        content.pack(fill="both", expand=True, padx=10, pady=(0, 8))
 
         self.sections = {}
         self.sections["files"] = self._build_files_card(content, s)
         self.sections["settings"] = self._build_settings_card(content, s)
         self.sections["log"] = self._build_log_card(content)
 
-        # Нижний блок (всегда видимый): живой предпросмотр слева,
-        # управление (статус + прогресс + Конвертировать) справа
+        # Нижний блок (всегда видимый): статус + прогресс + Конвертировать
         footer = tk.Frame(self, bg=COLORS["surface"])
         footer.pack(fill="x", side="bottom", padx=10, pady=(2, 8))
-
-        # Живой предпросмотр сжатия рядом с кнопкой Конвертировать
-        self.preview_panel = PreviewPanel(
-            footer,
-            image_provider=lambda: [
-                f for f in self.files if os.path.splitext(f)[1].lower() in IMAGE_EXTS
-            ],
-            dpi_var=self.dpi_var, jpeg_var=self.jpeg_var, gray_var=self.grayscale_var,
-            on_apply=self._apply_preview_settings,
-        )
-        self.preview_panel.pack(side="left", fill="both", expand=True, padx=(0, 8))
-
-        f_right = tk.Frame(footer, bg=COLORS["surface"])
-        f_right.pack(side="right", fill="y")
-
         self.gs_label = ttk.Label(
-            f_right, text=self._gs_status_text(),
+            footer, text=self._gs_status_text(),
             foreground=(COLORS["on_surface_variant"] if self.gs_path else COLORS["error"]),
             font=(self._mono_font, 9),
         )
-        self.gs_label.pack(anchor="e", pady=(0, 4))
-        frm_progress = tk.Frame(f_right, bg=COLORS["surface"])
-        frm_progress.pack(fill="x", pady=(0, 6))
-        self.progress = ttk.Progressbar(frm_progress, mode="determinate")
-        self.progress.pack(side="left", fill="x", expand=True)
-        self.progress_lbl = ttk.Label(frm_progress, text="", width=10, anchor="e")
+        self.gs_label.pack(side="left", padx=2)
+        self.progress = ttk.Progressbar(footer, mode="determinate")
+        self.progress.pack(side="left", fill="x", expand=True, padx=8)
+        self.progress_lbl = ttk.Label(footer, text="", width=10, anchor="e")
         self.progress_lbl.pack(side="right", padx=(6, 0))
         self.convert_btn = ttk.Button(
-            f_right, text="Конвертировать", command=self.start_convert, style="Accent.TButton"
+            footer, text="Конвертировать", command=self.start_convert, style="Accent.TButton"
         )
-        self.convert_btn.pack(side="right", anchor="e")
+        self.convert_btn.pack(side="right", padx=(6, 0))
 
         self._show_section("files")
 
@@ -601,6 +576,14 @@ class App(_DND_BASE):
             hint = "Drag'n'drop недоступен: не установлен пакет tkinterdnd2"
         ttk.Label(frm, text=hint, style="Card.TLabel",
                   foreground=COLORS["on_surface_variant"]).pack(anchor="w", padx=4, pady=(4, 0))
+
+        row_preview = tk.Frame(inner, bg=COLORS["surface_lowest"])
+        row_preview.pack(fill="x", pady=(8, 0))
+        ttk.Button(row_preview, text="Живой предпросмотр", command=self.open_preview).pack(side="left")
+        ttk.Label(
+            row_preview, text="Смотрите размер/качество до и после в реальном времени",
+            style="Card.TLabel", foreground=COLORS["on_surface_variant"],
+        ).pack(side="left", padx=6)
         return card
 
     def _build_settings_card(self, master, s):
@@ -619,32 +602,29 @@ class App(_DND_BASE):
         ttk.Button(btns_out, text="Обзор...", command=self.choose_out_dir).pack(side="left", padx=2)
         ttk.Button(btns_out, text="Открыть папку", command=self.open_out_dir).pack(side="left", padx=2)
 
-        ttk.Label(inner, text="Качество / размер", style="Card.TLabel").pack(anchor="w", pady=(2, 2))
-        q = tk.Frame(inner, bg=COLORS["surface_lowest"])
-        q.pack(fill="x", pady=(0, 8))
-        ttk.Label(q, text="Пресет:", style="Card.TLabel").grid(row=0, column=0, sticky="w", padx=5, pady=5)
-        preset_combo = ttk.Combobox(
-            q, textvariable=self.preset_var, values=PRESETS, state="readonly"
+        ttk.Label(inner, text="Качество / размер", style="Card.TLabel").pack(anchor="w", pady=(8, 2))
+        row_q = tk.Frame(inner, bg=COLORS["surface_lowest"])
+        row_q.pack(fill="x", pady=(0, 6))
+        self.params_info_lbl = ttk.Label(
+            row_q, text="", style="Card.TLabel", foreground=COLORS["on_surface_variant"]
         )
-        preset_combo.grid(row=0, column=1, sticky="w", padx=5, pady=5)
-        preset_combo.bind("<<ComboboxSelected>>", self._toggle_custom)
+        self.params_info_lbl.pack(side="left", padx=6)
+        self._refresh_params_info()
+        ttk.Button(row_q, text="Параметры сжатия...", command=self.open_compression_dialog).pack(side="right", padx=6, pady=4)
 
         ttk.Checkbutton(
-            q, text="Ч/Б (grayscale)", variable=self.grayscale_var, style="Card.TCheckbutton"
-        ).grid(row=1, column=0, columnspan=2, sticky="w", padx=5, pady=5)
-        ttk.Checkbutton(
-            q, text="Объединить всё в один PDF", variable=self.merge_var, style="Card.TCheckbutton"
-        ).grid(row=1, column=2, columnspan=2, sticky="w", padx=5, pady=5)
-        q.columnconfigure(3, weight=1)
-
-        frm_preview = tk.Frame(inner, bg=COLORS["surface_lowest"])
-        frm_preview.pack(fill="x", pady=(4, 0))
-        ttk.Button(frm_preview, text="Открыть предпросмотр отдельно...", command=self.open_preview).pack(side="left")
-        ttk.Label(
-            frm_preview, text="Живой предпросмотр — на вкладке «Файлы»",
-            style="Card.TLabel", foreground=COLORS["on_surface_variant"],
-        ).pack(side="left", padx=6)
+            inner, text="Объединить всё в один PDF", variable=self.merge_var, style="Card.TCheckbutton"
+        ).pack(anchor="w", padx=6, pady=(4, 2))
         return card
+
+    def _refresh_params_info(self):
+        if getattr(self, "params_info_lbl", None) is None:
+            return
+        self.params_info_lbl.configure(
+            text=f"Пресет: {self.preset_var.get()}, DPI: {int(round(self.dpi_var.get()))}, "
+                 f"JPEG: {int(round(self.jpeg_var.get()))}, "
+                 f"Ч/Б: {'да' if self.grayscale_var.get() else 'нет'}"
+        )
 
     def _build_log_card(self, master):
         card = Card(master, pad=16)
@@ -690,6 +670,17 @@ class App(_DND_BASE):
     def _apply_preview_settings(self):
         self.preset_var.set("custom")
         self._persist_settings()
+        self._refresh_params_info()
+
+    def open_compression_dialog(self):
+        CompressionDialog(
+            self, self.preset_var, self.dpi_var, self.jpeg_var, self.grayscale_var,
+            self._on_compression_applied,
+        )
+
+    def _on_compression_applied(self):
+        self._persist_settings()
+        self._refresh_params_info()
 
     def add_files(self):
         paths = filedialog.askopenfilenames(
@@ -731,18 +722,18 @@ class App(_DND_BASE):
                 self.files.append(p)
                 self.listbox.insert(tk.END, p)
                 added += 1
-        panel = getattr(self, "preview_panel", None)
-        if panel is not None:
-            panel.refresh_images()
+        pw = getattr(self, "_preview_window", None)
+        if pw is not None and pw.winfo_exists():
+            pw.panel.refresh_images()
         return added
 
     def remove_selected(self):
         for i in reversed(self.listbox.curselection()):
             del self.files[i]
             self.listbox.delete(i)
-        panel = getattr(self, "preview_panel", None)
-        if panel is not None:
-            panel.refresh_images()
+        pw = getattr(self, "_preview_window", None)
+        if pw is not None and pw.winfo_exists():
+            pw.panel.refresh_images()
 
     def move_up(self):
         sel = self.listbox.curselection()
@@ -1031,11 +1022,7 @@ class App(_DND_BASE):
         self.destroy()
 
     def open_preview(self):
-        image_files = [
-            f for f in self.files
-            if os.path.splitext(f)[1].lower() in IMAGE_EXTS
-        ]
-        if not image_files:
+        if not any(os.path.splitext(f)[1].lower() in IMAGE_EXTS for f in self.files):
             messagebox.showwarning(
                 "Нет изображений",
                 "Добавьте в список хотя бы одно изображение (jpg/png/...), "
@@ -1043,11 +1030,18 @@ class App(_DND_BASE):
             )
             return
 
+        provider = lambda: [f for f in self.files if os.path.splitext(f)[1].lower() in IMAGE_EXTS]
+
         def apply():
             self.preset_var.set("custom")
             self._persist_settings()
+            self._refresh_params_info()
 
-        PreviewWindow(self, image_files, self.dpi_var, self.jpeg_var, self.grayscale_var, apply)
+        if self._preview_window is not None and self._preview_window.winfo_exists():
+            self._preview_window.lift()
+            self._preview_window.panel.refresh_images()
+            return
+        self._preview_window = PreviewWindow(self, provider, self.dpi_var, self.jpeg_var, self.grayscale_var, apply)
 
 
 class PreviewPanel(tk.Frame):
@@ -1218,20 +1212,98 @@ class PreviewPanel(tk.Frame):
 class PreviewWindow(tk.Toplevel):
     """Отдельное окно предпросмотра (обёртка над PreviewPanel)."""
 
-    def __init__(self, master, image_paths, dpi_var, jpeg_var, gray_var, on_apply):
+    def __init__(self, master, image_provider, dpi_var, jpeg_var, gray_var, on_apply):
         super().__init__(master)
         self.title("Предпросмотр сжатия")
         self.geometry("760x560")
         self.transient(master)
         self.configure(background=COLORS["surface"])
         self.panel = PreviewPanel(
-            self, lambda: list(image_paths), dpi_var, jpeg_var, gray_var, on_apply
+            self, image_provider, dpi_var, jpeg_var, gray_var, on_apply
         )
         self.panel.pack(fill="both", expand=True, padx=8, pady=8)
         self.lbl_orig_info = self.panel.lbl_orig_info
         self.lbl_comp_info = self.panel.lbl_comp_info
         self.var_gray = self.panel.gray_var
         self._update = self.panel._update
+
+
+class CompressionDialog(tk.Toplevel):
+    """Выпадающее окно параметров сжатия."""
+
+    def __init__(self, master, preset_var, dpi_var, jpeg_var, gray_var, on_apply):
+        super().__init__(master)
+        self.title("Параметры сжатия")
+        self.geometry("420x320")
+        self.transient(master)
+        self.grab_set()
+        self.configure(background=COLORS["surface"])
+        self.on_apply = on_apply
+
+        body = Card(self, pad=14)
+        body.pack(fill="both", expand=True, padx=10, pady=10)
+        inner = body.inner
+
+        ttk.Label(inner, text="Пресет:", style="Card.TLabel").grid(
+            row=0, column=0, sticky="w", padx=5, pady=5
+        )
+        self.var_preset = tk.StringVar(value=preset_var.get())
+        preset_combo = ttk.Combobox(
+            inner, textvariable=self.var_preset, values=PRESETS, state="readonly", width=18
+        )
+        preset_combo.grid(row=0, column=1, sticky="w", padx=5, pady=5)
+
+        ttk.Label(inner, text="DPI:", style="Card.TLabel").grid(
+            row=1, column=0, sticky="w", padx=5, pady=5
+        )
+        self.var_dpi = tk.DoubleVar(value=dpi_var.get())
+        ttk.Scale(inner, from_=30, to=300, variable=self.var_dpi, orient="horizontal").grid(
+            row=1, column=1, sticky="we", padx=5, pady=5
+        )
+        self.dpi_val = ttk.Label(inner, text=str(int(round(self.var_dpi.get()))), width=5, style="Card.TLabel")
+        self.dpi_val.grid(row=1, column=2, padx=2, pady=5)
+        self.var_dpi.trace_add("write", lambda *_a: self.dpi_val.configure(
+            text=str(int(round(self.var_dpi.get())))
+        ))
+
+        ttk.Label(inner, text="JPEG качество:", style="Card.TLabel").grid(
+            row=2, column=0, sticky="w", padx=5, pady=5
+        )
+        self.var_jpeg = tk.IntVar(value=jpeg_var.get())
+        ttk.Scale(inner, from_=10, to=95, variable=self.var_jpeg, orient="horizontal").grid(
+            row=2, column=1, sticky="we", padx=5, pady=5
+        )
+        self.jpeg_val = ttk.Label(inner, text=str(int(round(self.var_jpeg.get()))), width=5, style="Card.TLabel")
+        self.jpeg_val.grid(row=2, column=2, padx=2, pady=5)
+        self.var_jpeg.trace_add("write", lambda *_a: self.jpeg_val.configure(
+            text=str(int(round(self.var_jpeg.get())))
+        ))
+
+        self.var_gray = tk.BooleanVar(value=bool(gray_var.get()))
+        ttk.Checkbutton(
+            inner, text="Ч/Б (grayscale)", variable=self.var_gray, style="Card.TCheckbutton"
+        ).grid(row=3, column=0, columnspan=3, sticky="w", padx=5, pady=5)
+
+        inner.columnconfigure(1, weight=1)
+
+        frm_btns = tk.Frame(inner, bg=COLORS["surface_lowest"])
+        frm_btns.grid(row=4, column=0, columnspan=3, sticky="e", pady=(10, 0))
+        ttk.Button(frm_btns, text="Отмена", command=self.destroy).pack(side="right", padx=4)
+        ttk.Button(frm_btns, text="Применить", command=self._apply, style="Accent.TButton").pack(side="right", padx=4)
+
+        self.preset_var = preset_var
+        self.dpi_var = dpi_var
+        self.jpeg_var = jpeg_var
+        self.gray_var = gray_var
+
+    def _apply(self):
+        self.preset_var.set(self.var_preset.get())
+        self.dpi_var.set(int(round(self.var_dpi.get())))
+        self.jpeg_var.set(int(round(self.var_jpeg.get())))
+        self.gray_var.set(bool(self.var_gray.get()))
+        if self.on_apply:
+            self.on_apply()
+        self.destroy()
 
 
 if __name__ == "__main__":
