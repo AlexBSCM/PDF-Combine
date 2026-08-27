@@ -182,7 +182,7 @@ class App(_DND_BASE):
     def __init__(self):
         super().__init__()
         self.title("PDF Converter")
-        self.geometry("660x620")
+        self.geometry("760x700")
         self._apply_window_icon()
         self._apply_theme()
 
@@ -1121,7 +1121,10 @@ class PreviewPanel(tk.Frame):
 
         bottom = ttk.Frame(self)
         bottom.pack(fill="x", padx=6, pady=4)
-        ttk.Button(bottom, text="Применить к настройкам", command=self._apply).pack(side="right")
+        self.status_lbl = ttk.Label(bottom, text="", foreground=COLORS["primary"], style="Card.TLabel")
+        self.status_lbl.pack(side="left", padx=4)
+        self.apply_btn = ttk.Button(bottom, text="Применить к настройкам", command=self._apply)
+        self.apply_btn.pack(side="right")
 
         self.dpi_var.trace_add("write", self._on_change)
         self.jpeg_var.trace_add("write", self._on_change)
@@ -1140,6 +1143,11 @@ class PreviewPanel(tk.Frame):
             self.var_image.set(names[0])
         elif not names:
             self.var_image.set("")
+        has = bool(names)
+        try:
+            self.apply_btn.state(["!disabled"] if has else ["disabled"])
+        except Exception:
+            pass
         self._schedule()
 
     def _schedule(self):
@@ -1196,7 +1204,15 @@ class PreviewPanel(tk.Frame):
         self.est_lbl.configure(text=f"Оценка: {fmt_size(orig_bytes)} -> ~{fmt_size(size)}")
 
     def _apply(self):
-        self.on_apply()
+        try:
+            self.on_apply()
+        except Exception as e:
+            messagebox.showerror("Ошибка применения", str(e))
+            return
+        dpi = int(round(self.dpi_var.get()))
+        q = int(round(self.jpeg_var.get()))
+        self.status_lbl.configure(text=f"✓ Применено: custom, DPI {dpi}, JPEG {q}")
+        self.after(2600, lambda: self.status_lbl.configure(text=""))
 
 
 class PreviewWindow(tk.Toplevel):
