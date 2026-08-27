@@ -67,6 +67,48 @@ _LOG_DIR = os.path.join(_APPDATA_DIR, "logs")
 _DND_BASE = TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk
 
 
+class Card(tk.Frame):
+    """Карточка со скруглёнными углами (canvas + вложенный фрейм)."""
+
+    def __init__(self, master, radius=16, bg=COLORS["surface_lowest"],
+                 border=COLORS["outline_variant"], pad=14, **kw):
+        super().__init__(master, bg=master.cget("background"), bd=0, highlightthickness=0, **kw)
+        self._radius = radius
+        self._card_bg = bg
+        self._card_border = border
+        self._pad = pad
+        self._canvas = tk.Canvas(self, bg=self.cget("background"), highlightthickness=0, bd=0)
+        self._canvas.pack(fill="both", expand=True)
+        self.inner = tk.Frame(self._canvas, bg=bg, bd=0, highlightthickness=0)
+        self._win = self._canvas.create_window(pad, pad, window=self.inner, anchor="nw")
+        self._canvas.bind("<Configure>", self._redraw)
+
+    def _redraw(self, _event=None):
+        w = self._canvas.winfo_width()
+        h = self._canvas.winfo_height()
+        if w < 2 or h < 2:
+            return
+        r = self._radius
+        pad = self._pad
+        self._canvas.delete("card")
+        self._rr(self._canvas, 0, 0, w, h, r, self._card_border)
+        self._rr(self._canvas, 1, 1, w - 2, h - 2, max(0, r - 1), self._card_bg)
+        iw = max(1, w - 2 * pad)
+        ih = max(1, h - 2 * pad)
+        self._canvas.coords(self._win, pad, pad)
+        self._canvas.itemconfig(self._win, width=iw, height=ih)
+
+    @staticmethod
+    def _rr(c, x1, y1, x2, y2, r, color):
+        c.create_rectangle(x1 + r, y1, x2 - r, y2, fill=color, outline=color, tags="card")
+        c.create_rectangle(x1, y1 + r, x2, y2 - r, fill=color, outline=color, tags="card")
+        c.create_oval(x1, y1, x1 + 2 * r, y1 + 2 * r, fill=color, outline=color, tags="card")
+        c.create_oval(x2 - 2 * r, y1, x2, y1 + 2 * r, fill=color, outline=color, tags="card")
+        c.create_oval(x1, y2 - 2 * r, x1 + 2 * r, y2, fill=color, outline=color, tags="card")
+        c.create_oval(x2 - 2 * r, y2 - 2 * r, x2, y2, fill=color, outline=color, tags="card")
+
+
+
 def _setup_logging() -> logging.Logger:
     logger = logging.getLogger("pdfconv")
     if logger.handlers:
@@ -209,6 +251,26 @@ class App(_DND_BASE):
             labelmargins=(8, 6),
             font=(ui, 11, "bold"),
         )
+        style.configure("Card.TFrame", background=C["surface_lowest"])
+        style.configure(
+            "Card.TLabel",
+            background=C["surface_lowest"],
+            foreground=C["on_surface"],
+            font=(ui, 11),
+        )
+        style.configure(
+            "CardTitle.TLabel",
+            background=C["surface_lowest"],
+            foreground=C["on_surface"],
+            font=(ui, 13, "bold"),
+        )
+        style.configure(
+            "Card.TCheckbutton",
+            background=C["surface_lowest"],
+            foreground=C["on_surface"],
+            font=(ui, 10),
+        )
+        style.map("Card.TCheckbutton", indicatorcolor=[("selected", C["primary"])])
         style.configure(
             "TButton",
             background=C["surface_lowest"],
@@ -368,34 +430,112 @@ class App(_DND_BASE):
         )
         saved_preset = s.get("preset") if s.get("preset") in PRESETS else "ebook"
 
-        # Верхняя шапка (логотип + название)
+        # Шапка
         header = ttk.Frame(self)
         header.pack(fill="x", pady=(0, 4))
-        logo = tk.Label(
+        tk.Label(
             header, text="PDF", bg=COLORS["primary"], fg=COLORS["on_primary"],
             font=(self._ui_font, 11, "bold"), padx=8, pady=3,
-        )
-        logo.pack(side="left", padx=(12, 8), pady=8)
+        ).pack(side="left", padx=(12, 8), pady=8)
         ttk.Label(header, text="Конвертер PDF", style="Header.TLabel").pack(side="left", pady=8)
 
-        frm_files = ttk.LabelFrame(self, text="Файлы")
-        frm_files.pack(fill="both", expand=True, padx=10, pady=10)
+        # Тело: сайдбар + контент
+        body = tk.Frame(self, bg=COLORS["surface"])
+        body.pack(fill="both", expand=True)
 
+        sidebar = tk.Frame(body, bg=COLORS["surface"], width=190)
+        sidebar.pack(side="left", fill="y", padx=(8, 0), pady=8)
+        sidebar.pack_propagate(False)
+
+        self._nav_buttons = {}
+        for key, label in (("files", "Файлы"), ("settings", "Настройки"), ("log", "Лог")):
+            b = tk.Button(
+                sidebar, text=label, anchor="w", relief="flat", bd=0,
+                bg=COLORS["surface"], fg=COLORS["on_surface"],
+                activebackground=COLORS["surface_low"], font=(self._ui_font, 11),
+                padx=14, pady=8, cursor="hand2",
+                command=lambda k=key: self._show_section(k),
+            )
+            b.pack(fill="x", pady=2)
+            self._nav_buttons[key] = b
+
+        content = tk.Frame(body, bg=COLORS["surface"])
+        content.pack(side="left", fill="both", expand=True, padx=(0, 10), pady=8)
+
+        self.sections = {}
+        self.sections["files"] = self._build_files_card(content, s)
+        self.sections["settings"] = self._build_settings_card(content, s, saved_preset, out_dir_default)
+        self.sections["log"] = self._build_log_card(content)
+
+        # Нижний колонтитул (всегда видимый): статус GS + кнопка + прогресс
+        footer = tk.Frame(self, bg=COLORS["surface"])
+        footer.pack(fill="x", side="bottom", padx=10, pady=(2, 8))
+        f_top = tk.Frame(footer, bg=COLORS["surface"])
+        f_top.pack(fill="x")
+        self.gs_label = ttk.Label(
+            f_top, text=self._gs_status_text(),
+            foreground=(COLORS["on_surface_variant"] if self.gs_path else COLORS["error"]),
+            font=(self._mono_font, 9),
+        )
+        self.gs_label.pack(side="left", padx=2)
+        self.convert_btn = ttk.Button(
+            f_top, text="Конвертировать", command=self.start_convert, style="Accent.TButton"
+        )
+        self.convert_btn.pack(side="right")
+        frm_progress = tk.Frame(footer, bg=COLORS["surface"])
+        frm_progress.pack(fill="x", pady=(4, 0))
+        self.progress = ttk.Progressbar(frm_progress, mode="determinate")
+        self.progress.pack(side="left", fill="x", expand=True)
+        self.progress_lbl = ttk.Label(frm_progress, text="", width=10, anchor="e")
+        self.progress_lbl.pack(side="right", padx=(6, 0))
+
+        self._show_section("files")
+
+    def _gs_status_text(self) -> str:
+        return (
+            f"Ghostscript: {self.gs_path}"
+            if self.gs_path
+            else "Ghostscript не найден — сжатие будет пропущено"
+        )
+
+    def _show_section(self, key: str):
+        for k, sec in self.sections.items():
+            if k == key:
+                sec.pack(in_=sec.master, fill="both", expand=True, padx=0, pady=0)
+            else:
+                sec.pack_forget()
+        for k, b in self._nav_buttons.items():
+            if k == key:
+                b.configure(
+                    bg=COLORS["secondary_container"], fg=COLORS["on_secondary_container"],
+                    activebackground=COLORS["secondary_container"],
+                )
+            else:
+                b.configure(
+                    bg=COLORS["surface"], fg=COLORS["on_surface"],
+                    activebackground=COLORS["surface_low"],
+                )
+
+    def _build_files_card(self, master, s):
+        card = Card(master, pad=16)
+        inner = card.inner
+        ttk.Label(inner, text="Файлы", style="CardTitle.TLabel").pack(anchor="w", pady=(0, 8))
+        frm = tk.Frame(inner, bg=COLORS["surface_lowest"])
+        frm.pack(fill="both", expand=True)
         self.listbox = tk.Listbox(
-            frm_files, selectmode=tk.EXTENDED,
+            frm, selectmode=tk.EXTENDED,
             bg=COLORS["surface_lowest"], fg=COLORS["on_surface"],
             selectbackground=COLORS["primary"], selectforeground=COLORS["on_primary"],
             font=(self._ui_font, 10), borderwidth=1, relief="flat",
             highlightthickness=0, activestyle="none",
         )
-        self.listbox.pack(fill="both", expand=True, side="left", padx=5, pady=5)
-
-        btns = ttk.Frame(frm_files)
-        btns.pack(side="right", fill="y", padx=5, pady=5)
+        self.listbox.pack(fill="both", expand=True, side="left", padx=4, pady=4)
+        btns = tk.Frame(frm, bg=COLORS["surface_lowest"])
+        btns.pack(side="right", fill="y", padx=4, pady=4)
         ttk.Button(btns, text="Добавить...", command=self.add_files).pack(fill="x", pady=2)
         ttk.Button(btns, text="Убрать выбранное", command=self.remove_selected).pack(fill="x", pady=2)
         ttk.Button(btns, text="Разделить PDF...", command=self.split_selected).pack(fill="x", pady=2)
-        row_order = ttk.Frame(btns)
+        row_order = tk.Frame(btns, bg=COLORS["surface_lowest"])
         row_order.pack(fill="x", pady=2)
         ttk.Button(row_order, text="↑", width=3, command=self.move_up).pack(
             side="left", fill="x", expand=True
@@ -403,7 +543,6 @@ class App(_DND_BASE):
         ttk.Button(row_order, text="↓", width=3, command=self.move_down).pack(
             side="right", fill="x", expand=True
         )
-
         if _DND_AVAILABLE:
             hint = "Перетащите файлы или папки в окно (папки сканируются рекурсивно)"
             self.drop_target_register(DND_FILES)
@@ -412,31 +551,40 @@ class App(_DND_BASE):
             self.listbox.dnd_bind("<<Drop>>", self._on_drop)
         else:
             hint = "Drag'n'drop недоступен: не установлен пакет tkinterdnd2"
-        ttk.Label(frm_files, text=hint, foreground="gray").pack(side="bottom")
+        ttk.Label(inner, text=hint, style="Card.TLabel",
+                  foreground=COLORS["on_surface_variant"]).pack(anchor="w", pady=(6, 0))
+        return card
 
-        frm_out = ttk.LabelFrame(self, text="Папка вывода")
-        frm_out.pack(fill="x", padx=10, pady=5)
+    def _build_settings_card(self, master, s, saved_preset, out_dir_default):
+        card = Card(master, pad=16)
+        inner = card.inner
+        ttk.Label(inner, text="Настройки", style="CardTitle.TLabel").pack(anchor="w", pady=(0, 8))
+
+        ttk.Label(inner, text="Папка вывода", style="Card.TLabel").pack(anchor="w", pady=(2, 2))
+        frm_out = tk.Frame(inner, bg=COLORS["surface_lowest"])
+        frm_out.pack(fill="x", pady=(0, 10))
         self.out_dir_var = tk.StringVar(value=out_dir_default)
         ttk.Entry(frm_out, textvariable=self.out_dir_var).pack(
             side="left", fill="x", expand=True, padx=5, pady=5
         )
-        btns_out = ttk.Frame(frm_out)
+        btns_out = tk.Frame(frm_out, bg=COLORS["surface_lowest"])
         btns_out.pack(side="right", padx=5, pady=5)
         ttk.Button(btns_out, text="Обзор...", command=self.choose_out_dir).pack(side="left", padx=2)
         ttk.Button(btns_out, text="Открыть папку", command=self.open_out_dir).pack(side="left", padx=2)
 
-        frm_quality = ttk.LabelFrame(self, text="Качество / размер")
-        frm_quality.pack(fill="x", padx=10, pady=5)
+        ttk.Label(inner, text="Качество / размер", style="Card.TLabel").pack(anchor="w", pady=(2, 2))
+        q = tk.Frame(inner, bg=COLORS["surface_lowest"])
+        q.pack(fill="x", pady=(0, 8))
 
-        ttk.Label(frm_quality, text="Пресет:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
+        ttk.Label(q, text="Пресет:", style="Card.TLabel").grid(row=0, column=0, sticky="w", padx=5, pady=5)
         self.preset_var = tk.StringVar(value=saved_preset)
         preset_combo = ttk.Combobox(
-            frm_quality, textvariable=self.preset_var, values=PRESETS, state="readonly"
+            q, textvariable=self.preset_var, values=PRESETS, state="readonly"
         )
         preset_combo.grid(row=0, column=1, sticky="w", padx=5, pady=5)
         preset_combo.bind("<<ComboboxSelected>>", self._toggle_custom)
 
-        ttk.Label(frm_quality, text="DPI (custom):").grid(row=0, column=2, sticky="w", padx=5, pady=5)
+        ttk.Label(q, text="DPI (custom):", style="Card.TLabel").grid(row=0, column=2, sticky="w", padx=5, pady=5)
         dpi_saved = s.get("dpi", 150)
         try:
             dpi_saved = float(dpi_saved)
@@ -444,14 +592,14 @@ class App(_DND_BASE):
             dpi_saved = 150.0
         self.dpi_var = tk.DoubleVar(value=max(30, min(300, dpi_saved)))
         self.dpi_scale = ttk.Scale(
-            frm_quality, from_=30, to=300, variable=self.dpi_var, orient="horizontal",
+            q, from_=30, to=300, variable=self.dpi_var, orient="horizontal",
             command=self._on_scale,
         )
         self.dpi_scale.grid(row=0, column=3, sticky="we", padx=5, pady=5)
-        self.dpi_val_lbl = ttk.Label(frm_quality, text=str(int(round(self.dpi_var.get()))), width=5)
+        self.dpi_val_lbl = ttk.Label(q, text=str(int(round(self.dpi_var.get()))), width=5, style="Card.TLabel")
         self.dpi_val_lbl.grid(row=0, column=4, padx=2, pady=5)
 
-        ttk.Label(frm_quality, text="JPEG качество (custom):").grid(
+        ttk.Label(q, text="JPEG качество (custom):", style="Card.TLabel").grid(
             row=2, column=0, columnspan=2, sticky="w", padx=5, pady=5
         )
         jpeg_saved = s.get("jpeg_quality", 75)
@@ -461,70 +609,44 @@ class App(_DND_BASE):
             jpeg_saved = 75
         self.jpeg_var = tk.IntVar(value=max(10, min(95, jpeg_saved)))
         self.jpeg_scale = ttk.Scale(
-            frm_quality, from_=10, to=95, variable=self.jpeg_var, orient="horizontal",
+            q, from_=10, to=95, variable=self.jpeg_var, orient="horizontal",
             command=self._on_scale,
         )
         self.jpeg_scale.grid(row=2, column=2, columnspan=2, sticky="we", padx=5, pady=5)
-        self.jpeg_val_lbl = ttk.Label(frm_quality, text=str(int(round(self.jpeg_var.get()))), width=5)
+        self.jpeg_val_lbl = ttk.Label(q, text=str(int(round(self.jpeg_var.get()))), width=5, style="Card.TLabel")
         self.jpeg_val_lbl.grid(row=2, column=4, padx=2, pady=5)
 
         self.grayscale_var = tk.BooleanVar(value=bool(s.get("grayscale", False)))
-        ttk.Checkbutton(frm_quality, text="Ч/Б (grayscale)", variable=self.grayscale_var).grid(
-            row=1, column=0, columnspan=2, sticky="w", padx=5, pady=5
-        )
+        ttk.Checkbutton(
+            q, text="Ч/Б (grayscale)", variable=self.grayscale_var, style="Card.TCheckbutton"
+        ).grid(row=1, column=0, columnspan=2, sticky="w", padx=5, pady=5)
 
         self.merge_var = tk.BooleanVar(value=bool(s.get("merge", False)))
-        ttk.Checkbutton(frm_quality, text="Объединить всё в один PDF", variable=self.merge_var).grid(
-            row=1, column=2, columnspan=2, sticky="w", padx=5, pady=5
-        )
+        ttk.Checkbutton(
+            q, text="Объединить всё в один PDF", variable=self.merge_var, style="Card.TCheckbutton"
+        ).grid(row=1, column=2, columnspan=2, sticky="w", padx=5, pady=5)
 
-        frm_quality.columnconfigure(3, weight=1)
+        q.columnconfigure(3, weight=1)
 
-        frm_preview = ttk.Frame(self)
-        frm_preview.pack(fill="x", padx=10, pady=(0, 5))
-        ttk.Button(
-            frm_preview, text="Предпросмотр сжатия...", command=self.open_preview
-        ).pack(side="left")
+        frm_preview = tk.Frame(inner, bg=COLORS["surface_lowest"])
+        frm_preview.pack(fill="x", pady=(4, 0))
+        ttk.Button(frm_preview, text="Предпросмотр сжатия...", command=self.open_preview).pack(side="left")
         ttk.Label(
-            frm_preview,
-            text="Смотрите размер/качество до и после в реальном времени",
-            foreground="gray",
+            frm_preview, text="Смотрите размер/качество до и после в реальном времени",
+            style="Card.TLabel", foreground=COLORS["on_surface_variant"],
         ).pack(side="left", padx=6)
+        return card
 
-        gs_status = (
-            f"Ghostscript: {self.gs_path}"
-            if self.gs_path
-            else "Ghostscript не найден — сжатие будет пропущено"
-        )
-        self.gs_label = ttk.Label(
-            self, text=gs_status,
-            foreground=(COLORS["on_surface_variant"] if self.gs_path else COLORS["error"]),
-            font=(self._mono_font, 9),
-        )
-        self.gs_label.pack(anchor="w", padx=12, pady=(2, 0))
-
-        self.convert_btn = ttk.Button(
-            self, text="Конвертировать", command=self.start_convert, style="Accent.TButton"
-        )
-        self.convert_btn.pack(pady=10)
-
-        frm_progress = ttk.Frame(self)
-        frm_progress.pack(fill="x", padx=12, pady=(0, 6))
-        self.progress = ttk.Progressbar(frm_progress, mode="determinate")
-        self.progress.pack(side="left", fill="x", expand=True)
-        self.progress_lbl = ttk.Label(frm_progress, text="", width=10, anchor="e")
-        self.progress_lbl.pack(side="right", padx=(6, 0))
-
-        frm_log = ttk.Frame(self)
-        frm_log.pack(fill="both", expand=True, padx=10, pady=(6, 10))
-        row_log = ttk.Frame(frm_log)
+    def _build_log_card(self, master):
+        card = Card(master, pad=16)
+        inner = card.inner
+        ttk.Label(inner, text="Лог выполнения", style="CardTitle.TLabel").pack(anchor="w", pady=(0, 8))
+        row_log = tk.Frame(inner, bg=COLORS["surface_lowest"])
         row_log.pack(fill="x", pady=(0, 4))
-        self.copy_log_btn = ttk.Button(
-            row_log, text="Копировать лог", command=self.copy_log
-        )
+        self.copy_log_btn = ttk.Button(row_log, text="Копировать лог", command=self.copy_log)
         self.copy_log_btn.pack(side="right")
         self.log = tk.Text(
-            frm_log, height=9,
+            inner, height=12,
             bg=COLORS["surface_lowest"], fg=COLORS["log_fg"],
             font=(self._mono_font, 9), borderwidth=1, relief="flat",
             selectbackground=COLORS["primary"], selectforeground=COLORS["on_primary"],
@@ -532,6 +654,7 @@ class App(_DND_BASE):
         )
         self.log.pack(fill="both", expand=True)
         self.log.bind("<Control-c>", self._log_ctrl_c)
+        return card
 
     def copy_log(self):
         text = self.log.get("1.0", "end-1c")
@@ -951,28 +1074,32 @@ class PreviewWindow(tk.Toplevel):
         self.combo.pack(side="left", padx=6)
         self.combo.bind("<<ComboboxSelected>>", lambda _e: self._schedule())
 
-        frm = ttk.Frame(self)
+        frm = tk.Frame(self, bg=COLORS["surface"])
         frm.pack(fill="both", expand=True, padx=10)
-        left = ttk.LabelFrame(frm, text="Оригинал")
+        left = Card(frm, radius=14, pad=12)
         left.pack(side="left", fill="both", expand=True, padx=(0, 5))
-        right = ttk.LabelFrame(frm, text="Сжатая версия")
+        right = Card(frm, radius=14, pad=12)
         right.pack(side="left", fill="both", expand=True, padx=(5, 0))
-        self.lbl_orig_img = ttk.Label(left)
+        ttk.Label(left.inner, text="Оригинал", style="CardTitle.TLabel").pack(anchor="w", pady=(0, 6))
+        ttk.Label(right.inner, text="Сжатая версия", style="CardTitle.TLabel").pack(anchor="w", pady=(0, 6))
+        self.lbl_orig_img = ttk.Label(left.inner, style="Card.TLabel")
         self.lbl_orig_img.pack(expand=True)
-        self.lbl_orig_info = ttk.Label(left)
+        self.lbl_orig_info = ttk.Label(left.inner, style="Card.TLabel")
         self.lbl_orig_info.pack(pady=4)
-        self.lbl_comp_img = ttk.Label(right)
+        self.lbl_comp_img = ttk.Label(right.inner, style="Card.TLabel")
         self.lbl_comp_img.pack(expand=True)
-        self.lbl_comp_info = ttk.Label(right)
+        self.lbl_comp_info = ttk.Label(right.inner, style="Card.TLabel")
         self.lbl_comp_info.pack(pady=4)
 
-        ctrls = ttk.LabelFrame(self, text="Параметры сжатия")
+        ctrls = Card(self, radius=14, pad=12)
+        ctrls.inner.configure(pady=0)
         ctrls.pack(fill="x", padx=10, pady=6)
+        ttk.Label(ctrls.inner, text="Параметры сжатия", style="CardTitle.TLabel").pack(anchor="w", pady=(0, 6))
         self.var_dpi = tk.DoubleVar(value=dpi)
         self.var_q = tk.IntVar(value=quality)
         self.var_gray = tk.BooleanVar(value=grayscale)
 
-        r1 = ttk.Frame(ctrls)
+        r1 = tk.Frame(ctrls.inner, bg=COLORS["surface_lowest"])
         r1.pack(fill="x", padx=8, pady=4)
         ttk.Label(r1, text="DPI:").pack(side="left")
         ttk.Scale(r1, from_=30, to=300, variable=self.var_dpi, orient="horizontal").pack(
@@ -982,7 +1109,7 @@ class PreviewWindow(tk.Toplevel):
         self.dpi_lbl.pack(side="left")
         self.var_dpi.trace_add("write", self._on_change)
 
-        r2 = ttk.Frame(ctrls)
+        r2 = tk.Frame(ctrls.inner, bg=COLORS["surface_lowest"])
         r2.pack(fill="x", padx=8, pady=4)
         ttk.Label(r2, text="JPEG:").pack(side="left")
         ttk.Scale(r2, from_=10, to=95, variable=self.var_q, orient="horizontal").pack(
@@ -992,7 +1119,7 @@ class PreviewWindow(tk.Toplevel):
         self.q_lbl.pack(side="left")
         self.var_q.trace_add("write", self._on_change)
 
-        r3 = ttk.Frame(ctrls)
+        r3 = tk.Frame(ctrls.inner, bg=COLORS["surface_lowest"])
         r3.pack(fill="x", padx=8, pady=4)
         ttk.Checkbutton(r3, text="Ч/Б (grayscale)", variable=self.var_gray, command=self._schedule).pack(side="left")
         self.est_lbl = ttk.Label(r3, text="", foreground="blue")
