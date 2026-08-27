@@ -237,6 +237,26 @@ def test_preview_render_smaller_at_low_quality(tmp_out):
     assert comp_gray.mode == "L"
 
 
+def test_images_custom_compression_small(tmp_out):
+    im = Image.new("RGB", (4032, 3024), (200, 50, 120))
+    pix = im.load()
+    for y in range(0, im.height, 16):
+        for x in range(0, im.width, 16):
+            c = (x % 255, y % 255, 100)
+            for yy in range(y, min(y + 16, im.height)):
+                for xx in range(x, min(x + 16, im.width)):
+                    pix[xx, yy] = c
+    src = tmp_out / "big.jpg"
+    im.save(src, quality=95)
+    out_hi = tmp_out / "hi.pdf"
+    out_lo = tmp_out / "lo.pdf"
+    images_to_pdf([str(src)], str(out_hi))
+    images_to_pdf([str(src)], str(out_lo), dpi=30, jpeg_quality=20)
+    raw = os.path.getsize(str(out_hi))
+    small = os.path.getsize(str(out_lo))
+    assert small < raw * 0.5
+
+
 def test_qfactor_mapping():
     assert _qfactor(95) == 0.1
     assert _qfactor(10) == 1.8

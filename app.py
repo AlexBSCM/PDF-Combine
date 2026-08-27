@@ -624,10 +624,24 @@ class App(_DND_BASE):
                         raw_path = os.path.join(tmp, "images_raw.pdf")
                         self._queue_log(f"Собираю {len(image_files)} изображений в PDF...")
                         try:
-                            images_to_pdf(image_files, raw_path, work_dir=tmp)
-                            produced.append(
-                                self._optimize_and_place(raw_path, "images", out_dir, tmp, settings)
-                            )
+                            if settings.preset == "custom":
+                                images_to_pdf(
+                                    image_files, raw_path, work_dir=tmp,
+                                    dpi=settings.dpi, jpeg_quality=settings.jpeg_quality,
+                                    grayscale=settings.grayscale,
+                                )
+                                final_path = unique_pdf_path(out_dir, "images")
+                                shutil.move(raw_path, final_path)
+                                self._queue_log(
+                                    f"  -> {os.path.basename(final_path)} "
+                                    f"(сжато: {fmt_size(os.path.getsize(final_path))})"
+                                )
+                                produced.append(final_path)
+                            else:
+                                images_to_pdf(image_files, raw_path, work_dir=tmp)
+                                produced.append(
+                                    self._optimize_and_place(raw_path, "images", out_dir, tmp, settings)
+                                )
                         except Exception as e:
                             msg = f"Ошибка при конвертации изображений: {e}"
                             log.error("%s", msg, exc_info=True)
@@ -847,7 +861,7 @@ class PreviewWindow(tk.Toplevel):
             return
 
         disp = base.copy()
-        disp.thumbnail((240, 240))
+        disp.thumbnail((300, 300))
         self._photo_orig = ImageTk.PhotoImage(disp)
         self.lbl_orig_img.configure(image=self._photo_orig)
         self.lbl_orig_info.configure(text=f"{base.width}x{base.height}, {fmt_size(orig_bytes)}")
@@ -861,10 +875,13 @@ class PreviewWindow(tk.Toplevel):
             self.lbl_comp_info.configure(text=f"Ошибка: {e}")
             return
         disp2 = comp.copy()
-        disp2.thumbnail((240, 240))
+        disp2.thumbnail((300, 300))
         self._photo_comp = ImageTk.PhotoImage(disp2)
         self.lbl_comp_img.configure(image=self._photo_comp)
-        self.lbl_comp_info.configure(text=f"{comp.width}x{comp.height}, ~{fmt_size(size)} на стр.")
+        mode = "Ч/Б" if gray else "цвет"
+        self.lbl_comp_info.configure(
+            text=f"{comp.width}x{comp.height}, ~{fmt_size(size)} на стр.\nDPI {dpi}, q{q}, {mode}"
+        )
         self.est_lbl.configure(text=f"Оценка: {fmt_size(orig_bytes)} -> ~{fmt_size(size)}")
 
     def _apply(self):
