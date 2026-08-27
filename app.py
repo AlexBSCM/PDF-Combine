@@ -480,27 +480,41 @@ class App(_DND_BASE):
         self.sections["settings"] = self._build_settings_card(content, s)
         self.sections["log"] = self._build_log_card(content)
 
-        # Нижний колонтитул (всегда видимый): статус GS + кнопка + прогресс
+        # Нижний блок (всегда видимый): живой предпросмотр слева,
+        # управление (статус + прогресс + Конвертировать) справа
         footer = tk.Frame(self, bg=COLORS["surface"])
         footer.pack(fill="x", side="bottom", padx=10, pady=(2, 8))
-        f_top = tk.Frame(footer, bg=COLORS["surface"])
-        f_top.pack(fill="x")
+
+        # Живой предпросмотр сжатия рядом с кнопкой Конвертировать
+        self.preview_panel = PreviewPanel(
+            footer,
+            image_provider=lambda: [
+                f for f in self.files if os.path.splitext(f)[1].lower() in IMAGE_EXTS
+            ],
+            dpi_var=self.dpi_var, jpeg_var=self.jpeg_var, gray_var=self.grayscale_var,
+            on_apply=self._apply_preview_settings,
+        )
+        self.preview_panel.pack(side="left", fill="both", expand=True, padx=(0, 8))
+
+        f_right = tk.Frame(footer, bg=COLORS["surface"])
+        f_right.pack(side="right", fill="y")
+
         self.gs_label = ttk.Label(
-            f_top, text=self._gs_status_text(),
+            f_right, text=self._gs_status_text(),
             foreground=(COLORS["on_surface_variant"] if self.gs_path else COLORS["error"]),
             font=(self._mono_font, 9),
         )
-        self.gs_label.pack(side="left", padx=2)
-        self.convert_btn = ttk.Button(
-            f_top, text="Конвертировать", command=self.start_convert, style="Accent.TButton"
-        )
-        self.convert_btn.pack(side="right")
-        frm_progress = tk.Frame(footer, bg=COLORS["surface"])
-        frm_progress.pack(fill="x", pady=(4, 0))
+        self.gs_label.pack(anchor="e", pady=(0, 4))
+        frm_progress = tk.Frame(f_right, bg=COLORS["surface"])
+        frm_progress.pack(fill="x", pady=(0, 6))
         self.progress = ttk.Progressbar(frm_progress, mode="determinate")
         self.progress.pack(side="left", fill="x", expand=True)
         self.progress_lbl = ttk.Label(frm_progress, text="", width=10, anchor="e")
         self.progress_lbl.pack(side="right", padx=(6, 0))
+        self.convert_btn = ttk.Button(
+            f_right, text="Конвертировать", command=self.start_convert, style="Accent.TButton"
+        )
+        self.convert_btn.pack(side="right", anchor="e")
 
         self._show_section("files")
 
@@ -587,17 +601,6 @@ class App(_DND_BASE):
             hint = "Drag'n'drop недоступен: не установлен пакет tkinterdnd2"
         ttk.Label(frm, text=hint, style="Card.TLabel",
                   foreground=COLORS["on_surface_variant"]).pack(anchor="w", padx=4, pady=(4, 0))
-
-        # Живой предпросмотр сжатия — сразу на главной странице
-        self.preview_panel = PreviewPanel(
-            h,
-            image_provider=lambda: [
-                f for f in self.files if os.path.splitext(f)[1].lower() in IMAGE_EXTS
-            ],
-            dpi_var=self.dpi_var, jpeg_var=self.jpeg_var, gray_var=self.grayscale_var,
-            on_apply=self._apply_preview_settings,
-        )
-        self.preview_panel.pack(side="right", fill="both", expand=True, padx=(4, 0))
         return card
 
     def _build_settings_card(self, master, s):
@@ -1169,7 +1172,7 @@ class PreviewPanel(tk.Frame):
             return
 
         disp = base.copy()
-        disp.thumbnail((260, 260))
+        disp.thumbnail((200, 200))
         self._photo_orig = ImageTk.PhotoImage(disp)
         self.lbl_orig_img.configure(image=self._photo_orig)
         self.lbl_orig_info.configure(text=f"{base.width}x{base.height}, {fmt_size(orig_bytes)}")
@@ -1183,7 +1186,7 @@ class PreviewPanel(tk.Frame):
             self.lbl_comp_info.configure(text=f"Ошибка: {e}")
             return
         disp2 = comp.copy()
-        disp2.thumbnail((260, 260))
+        disp2.thumbnail((200, 200))
         self._photo_comp = ImageTk.PhotoImage(disp2)
         self.lbl_comp_img.configure(image=self._photo_comp)
         mode = "Ч/Б" if gray else "цвет"
