@@ -49,7 +49,7 @@ COLORS = {
     "on_surface": "#0b1c30",
     "on_surface_variant": "#3d4947",
     "outline": "#6d7a77",
-    "outline_variant": "#bcc9c6",
+    "outline_variant": "#94a3b8",
     "primary": "#0D9488",
     "primary_hover": "#0f766e",
     "on_primary": "#ffffff",
@@ -92,7 +92,7 @@ class Card(tk.Frame):
         pad = self._pad
         self._canvas.delete("card")
         self._rr(self._canvas, 0, 0, w, h, r, self._card_border)
-        self._rr(self._canvas, 1, 1, w - 2, h - 2, max(0, r - 1), self._card_bg)
+        self._rr(self._canvas, 2, 2, w - 4, h - 4, max(0, r - 2), self._card_bg)
         iw = max(1, w - 2 * pad)
         ih = max(1, h - 2 * pad)
         self._canvas.coords(self._win, pad, pad)
@@ -254,15 +254,25 @@ class App(_DND_BASE):
         style.configure("Card.TFrame", background=C["surface_lowest"])
         style.configure(
             "Card.TLabel",
-            background=C["surface_lowest"],
-            foreground=C["on_surface"],
+            background=C["surface_low"],
+            foreground=C["on_surface_variant"],
             font=(ui, 11),
+            relief="solid",
+            borderwidth=1,
+            padding=(5, 3),
+            lightcolor=C["outline_variant"],
+            darkcolor=C["outline_variant"],
         )
         style.configure(
             "CardTitle.TLabel",
-            background=C["surface_lowest"],
-            foreground=C["on_surface"],
+            background=C["surface_low"],
+            foreground=C["primary"],
             font=(ui, 13, "bold"),
+            relief="solid",
+            borderwidth=1,
+            padding=(8, 5),
+            lightcolor=C["outline_variant"],
+            darkcolor=C["outline_variant"],
         )
         style.configure(
             "Card.TCheckbutton",
@@ -443,8 +453,8 @@ class App(_DND_BASE):
         body = tk.Frame(self, bg=COLORS["surface"])
         body.pack(fill="both", expand=True)
 
-        sidebar = tk.Frame(body, bg=COLORS["surface"], width=190)
-        sidebar.pack(side="left", fill="y", padx=(8, 0), pady=8)
+        sidebar = tk.Frame(body, bg=COLORS["surface"], width=96)
+        sidebar.pack(side="left", fill="y", padx=(6, 0), pady=8)
         sidebar.pack_propagate(False)
 
         self._nav_buttons = {}
@@ -452,8 +462,9 @@ class App(_DND_BASE):
             b = tk.Button(
                 sidebar, text=label, anchor="w", relief="flat", bd=0,
                 bg=COLORS["surface"], fg=COLORS["on_surface"],
-                activebackground=COLORS["surface_low"], font=(self._ui_font, 11),
-                padx=14, pady=8, cursor="hand2",
+                activebackground=COLORS["surface_low"], font=(self._ui_font, 10),
+                padx=6, pady=8, cursor="hand2",
+                highlightbackground=COLORS["outline_variant"], highlightthickness=1,
                 command=lambda k=key: self._show_section(k),
             )
             b.pack(fill="x", pady=2)
